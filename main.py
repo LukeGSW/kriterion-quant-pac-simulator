@@ -20,7 +20,7 @@ from utils.performance import (
     # Nuove importazioni per XIRR e Sortino
     generate_cash_flows_for_xirr,
     calculate_xirr_metric,
-    calculate_sortino_ratio_empyrical
+    #calculate_sortino_ratio_empyrical
 )
 
 st.set_page_config(page_title="Simulatore PAC Completo", layout="wide")
@@ -152,7 +152,7 @@ if run_simulation_button:
                 xirr_perc = calculate_xirr_metric(xirr_dates, xirr_values)
 
                 # Calcolo Sortino Ratio
-                sortino = calculate_sortino_ratio_empyrical(portfolio_daily_returns, required_return_annual=(mar_rate_input / 100.0))
+                #sortino = calculate_sortino_ratio_empyrical(portfolio_daily_returns, required_return_annual=(mar_rate_input / 100.0))
 
 
                 st.subheader("Metriche di Performance Riepilogative")
@@ -166,10 +166,10 @@ if run_simulation_button:
                 
                 metrics_to_display["Rendimento Totale"] = f"{total_return_perc:.2f}%"
                 metrics_to_display["CAGR"] = f"{cagr_perc:.2f}%" if pd.notna(cagr_perc) else "N/A"
-                if pd.notna(xirr_perc): # Mostra XIRR se calcolato
-                    metrics_to_display["XIRR Annualizzato"] = f"{xirr_perc:.2f}%"
-                else:
-                    metrics_to_display["XIRR Annualizzato"] = "N/A"
+                #if pd.notna(xirr_perc): # Mostra XIRR se calcolato
+                   # metrics_to_display["XIRR Annualizzato"] = f"{xirr_perc:.2f}%"
+               # else:
+                    #metrics_to_display["XIRR Annualizzato"] = "N/A"
 
                 metrics_to_display["Volatilità Ann."] = f"{annual_volatility:.2f}%" if pd.notna(annual_volatility) else "N/A"
                 metrics_to_display["Sharpe Ratio"] = f"{sharpe:.2f}" if pd.notna(sharpe) else "N/A"
