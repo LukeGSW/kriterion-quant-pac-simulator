@@ -4,6 +4,7 @@ yfinance
 python-dateutil
 matplotlib
 numpy
+pyxirr # Nuova libreria per XIRR
 # Le seguenti sono elencate nel documento progettuale e potrebbero servire in futuro,
 # ma non sono strettamente usate nel codice attuale delle fasi 1 e 2.
 # Per ora, è meglio includere solo quelle strettamente necessarie per evitare problemi di build.
