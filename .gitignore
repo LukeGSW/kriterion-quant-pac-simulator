@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambienti virtuali
+venv/
+*.venv/
+env/
+ENV/
+pip-freeze.txt
+pipenv-*.lock
+
+# File di sistema specifici
+.DS_Store
+Thumbs.db
+
+# File IDE
+.vscode/
+.idea/
+
+# File .env (per eventuali future API keys o configurazioni sensibili)
+.env
+.env.*
