@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, date
 
+# Importazioni dai tuoi moduli utils
 from utils.data_loader import load_historical_data_yf
 from utils.pac_engine import run_pac_simulation
 from utils.performance import (
@@ -12,16 +13,19 @@ from utils.performance import (
     calculate_total_return_percentage,
     calculate_cagr,
     get_duration_years,
-    # Nuove importazioni
     calculate_portfolio_returns,
     calculate_annualized_volatility,
     calculate_sharpe_ratio,
-    calculate_max_drawdown
+    calculate_max_drawdown,
+    # Nuove importazioni per XIRR e Sortino
+    generate_cash_flows_for_xirr,
+    calculate_xirr_metric,
+    calculate_sortino_ratio_empyrical
 )
 
-st.set_page_config(page_title="Simulatore PAC Multi-Asset", layout="wide")
-st.title("📘 Simulatore PAC Multi-Asset con Metriche Avanzate")
-st.caption("Progetto Kriterion Quant")
+st.set_page_config(page_title="Simulatore PAC Completo", layout="wide")
+st.title("📘 Simulatore PAC Completo con Metriche Avanzate")
+st.caption("Progetto Kriterion Quant - Include XIRR e Sortino Ratio")
 
 # --- Sidebar per Input Utente ---
 st.sidebar.header("Parametri della Simulazione")
@@ -47,20 +51,24 @@ if rebalance_active_input:
         index=0
     )
 
-st.sidebar.subheader("Parametri Metriche")
-risk_free_rate_input = st.sidebar.number_input("Tasso Risk-Free Annuale (%) per Sharpe Ratio", min_value=0.0, value=1.0, step=0.1, format="%.2f")
+st.sidebar.subheader("Parametri Metriche Avanzate")
+risk_free_rate_input = st.sidebar.number_input("Tasso Risk-Free Annuale (%) per Sharpe", min_value=0.0, value=1.0, step=0.1, format="%.2f")
+mar_rate_input = st.sidebar.number_input("Tasso Rendimento Minimo Accettabile (MAR) Annuale (%) per Sortino", min_value=0.0, value=0.0, step=0.1, format="%.2f")
 
 
 run_simulation_button = st.sidebar.button("🚀 Avvia Simulazione PAC")
 
 if run_simulation_button:
-    # ... (codice di validazione input tickers e allocazioni come prima) ...
+    # Processa e valida input tickers e allocazioni
     tickers_list = [ticker.strip().upper() for ticker in tickers_input_str.split(',') if ticker.strip()]
     error_in_input = False
     allocations_list_norm = []
+    allocations_float_list_raw = [] # Definita qui per averla nello scope successivo
+
     if not tickers_list:
         st.error("Errore: Devi inserire almeno un ticker.")
         error_in_input = True
+    
     if not error_in_input:
         try:
             allocations_float_list_raw = [float(alloc.strip()) for alloc in allocations_input_str.split(',') if alloc.strip()]
@@ -73,12 +81,15 @@ if run_simulation_button:
             else:
                 allocations_list_norm = [alloc / 100.0 for alloc in allocations_float_list_raw]
         except ValueError:
-            st.error("Errore: Le allocazioni devono essere numeri validi.")
+            st.error("Errore: Le allocazioni devono essere numeri validi (es. 50, 30.5, 20).")
             error_in_input = True
 
     if not error_in_input:
         st.header(f"Risultati Simulazione PAC per: {', '.join(tickers_list)}")
-        # ... (codice per caricamento dati e chiamata a run_pac_simulation come prima) ...
+        if allocations_float_list_raw: # Assicurati che sia stata popolata
+            alloc_display_list = [f"{tickers_list[i]}: {allocations_float_list_raw[i]}%" for i in range(len(tickers_list))]
+            st.write(f"Allocazioni Target: {', '.join(alloc_display_list)}")
+        # ... (resto della UI e logica di caricamento dati come prima) ...
         pac_start_date_str = pac_start_date_input.strftime('%Y-%m-%d')
         data_fetch_start_date = (pac_start_date_input - pd.Timedelta(days=365*3)).strftime('%Y-%m-%d')
         sim_end_date_approx = pd.to_datetime(pac_start_date_input) + pd.DateOffset(months=duration_months_input)
@@ -129,12 +140,23 @@ if run_simulation_button:
                 annual_volatility = calculate_annualized_volatility(portfolio_daily_returns)
                 sharpe = calculate_sharpe_ratio(portfolio_daily_returns, risk_free_rate_annual=(risk_free_rate_input / 100.0))
                 mdd = calculate_max_drawdown(pac_simulation_df)
-                # irr = calculate_irr_pac(...) # Da implementare
-                # sortino = calculate_sortino_ratio(...) # Da implementare
+                
+                # Calcolo XIRR (con la semplificazione attuale)
+                xirr_dates, xirr_values = generate_cash_flows_for_xirr(
+                    pac_df=pac_simulation_df, 
+                    start_date_pac_str=pac_start_date_str, # Data inizio PAC originale
+                    duration_months=duration_months_input,
+                    monthly_investment=monthly_investment_input,
+                    final_portfolio_value=final_value
+                )
+                xirr_perc = calculate_xirr_metric(xirr_dates, xirr_values)
+
+                # Calcolo Sortino Ratio
+                sortino = calculate_sortino_ratio_empyrical(portfolio_daily_returns, required_return_annual=(mar_rate_input / 100.0))
+
 
                 st.subheader("Metriche di Performance Riepilogative")
                 
-                # Creazione dinamica delle colonne per le metriche
                 metrics_to_display = {
                     "Capitale Totale Investito": f"{total_invested:,.2f}",
                     "Valore Finale Portafoglio": f"{final_value:,.2f}",
@@ -144,17 +166,36 @@ if run_simulation_button:
                 
                 metrics_to_display["Rendimento Totale"] = f"{total_return_perc:.2f}%"
                 metrics_to_display["CAGR"] = f"{cagr_perc:.2f}%" if pd.notna(cagr_perc) else "N/A"
+                if pd.notna(xirr_perc): # Mostra XIRR se calcolato
+                    metrics_to_display["XIRR Annualizzato"] = f"{xirr_perc:.2f}%"
+                else:
+                    metrics_to_display["XIRR Annualizzato"] = "N/A"
+
                 metrics_to_display["Volatilità Ann."] = f"{annual_volatility:.2f}%" if pd.notna(annual_volatility) else "N/A"
                 metrics_to_display["Sharpe Ratio"] = f"{sharpe:.2f}" if pd.notna(sharpe) else "N/A"
+                if pd.notna(sortino): # Mostra Sortino se calcolato
+                     metrics_to_display["Sortino Ratio"] = f"{sortino:.2f}"
+                else:
+                    metrics_to_display["Sortino Ratio"] = "N/A"
                 metrics_to_display["Max Drawdown"] = f"{mdd:.2f}%" if pd.notna(mdd) else "N/A"
-                # metrics_to_display["IRR"] = f"{irr:.2f}%" # Quando implementato
-                # metrics_to_display["Sortino Ratio"] = f"{sortino:.2f}" # Quando implementato
-
-                num_metrics_cols = len(metrics_to_display)
-                metric_cols = st.columns(num_metrics_cols)
                 
-                for i, (label, value) in enumerate(metrics_to_display.items()):
-                    metric_cols[i].metric(label, value)
+
+                num_metrics_cols_to_show = len(metrics_to_display)
+                # Cerca di organizzare le metriche in modo leggibile, ad es. 3 o 4 per riga
+                # Se abbiamo molte metriche, potremmo aver bisogno di più righe o di un layout a griglia più flessibile.
+                # Per ora, proviamo con un numero fisso di colonne per riga, es. 3 o 4.
+                # Questo layout di st.columns potrebbe necessitare di aggiustamenti se le etichette sono lunghe.
+                
+                # Suddividiamo le metriche in gruppi di 3 per una migliore visualizzazione
+                metric_items = list(metrics_to_display.items())
+                num_metrics_per_row = 3
+                
+                for i in range(0, len(metric_items), num_metrics_per_row):
+                    cols = st.columns(num_metrics_per_row)
+                    for j in range(num_metrics_per_row):
+                        if (i + j) < len(metric_items):
+                            label, value = metric_items[i+j]
+                            cols[j].metric(label, value)
                 
                 st.write(f"_Durata approssimativa della simulazione: {duration_yrs:.2f} anni._")
                 # ... (altre info e grafico come prima) ...
