@@ -163,7 +163,51 @@ if run_simulation_button:
         st.error("Simulazione PAC non ha prodotto risultati sufficienti per l'analisi.")
     else:
         st.success("Simulazioni completate. Inizio elaborazione output.")
-        
+    # ... (Simulazioni PAC e Lump Sum eseguite) ...
+
+            if pac_total_df.empty or 'PortfolioValue' not in pac_total_df.columns or len(pac_total_df) < 2:
+                st.error("Simulazione PAC non ha prodotto risultati sufficienti per l'analisi dettagliata.")
+            else:
+                st.success("Simulazioni completate. Inizio elaborazione output.") # <-- STAMPA DI CONTROLLO 1
+                
+                # FUNZIONE HELPER METRICHE 
+                def calculate_metrics_for_strategy(sim_df, strategy_name, total_invested_override=None, is_pac=False):
+                    # ... (codice interno della funzione helper come prima) ...
+                    # Aggiungiamo una stampa qui dentro per vedere se viene chiamata
+                    st.write(f"--- DEBUG: calculate_metrics_for_strategy chiamata per {strategy_name} ---") 
+                    metrics = {}
+                    # ... (resto della funzione helper)
+                    return metrics
+
+                metrics_pac = calculate_metrics_for_strategy(pac_total_df, "PAC", is_pac=True)
+                st.write(f"--- DEBUG: Metriche PAC calcolate: {metrics_pac} ---") # <-- STAMPA DI CONTROLLO 2
+
+                display_data_metrics = {"Metrica": list(metrics_pac.keys()), "PAC": list(metrics_pac.values())}
+
+                if not lump_sum_df.empty:
+                    total_invested_val_pac = get_total_capital_invested(pac_total_df)
+                    metrics_ls = calculate_metrics_for_strategy(lump_sum_df, "Lump Sum", total_invested_override=total_invested_val_pac, is_pac=False)
+                    st.write(f"--- DEBUG: Metriche Lump Sum calcolate: {metrics_ls} ---") # <-- STAMPA DI CONTROLLO 3
+                    
+                    # Assicuriamoci che metrics_ls non sia vuoto e che le chiavi esistano
+                    if metrics_ls and metrics_pac: # Controlla che entrambi i dizionari non siano vuoti
+                        ls_values_aligned = [metrics_ls.get(key, "N/A") for key in metrics_pac.keys()]
+                        display_data_metrics["Lump Sum"] = ls_values_aligned
+                    else:
+                        st.write("--- DEBUG: Metriche LS o PAC vuote, non posso allineare per la tabella. ---")
+                
+                st.subheader("Metriche di Performance Riepilogative")
+                if display_data_metrics.get("Metrica"): # Controlla se la chiave Metrica esiste e ha valori
+                    df_metrics_to_display = pd.DataFrame(display_data_metrics)
+                    if not df_metrics_to_display.empty:
+                        st.table(df_metrics_to_display.set_index("Metrica"))
+                        st.write("--- DEBUG: Tabella Metriche Riepilogative DOVREBBE ESSERE VISUALIZZATA ---") # <-- STAMPA DI CONTROLLO 4
+                    else:
+                        st.warning("DataFrame per le metriche riepilogative è vuoto.")
+                else:
+                    st.warning("Dati per le metriche riepilogative non pronti per la tabella.")
+
+                # ... Resto del codice per grafici e altre tabelle ...    
         # FUNZIONE HELPER METRICHE (invariata)
         # ... (codice funzione helper calculate_metrics_for_strategy come prima) ...
         def calculate_metrics_for_strategy(sim_df, strategy_name, total_invested_override=None, is_pac=False):
