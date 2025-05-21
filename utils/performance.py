@@ -245,7 +245,48 @@ def calculate_xirr_metric(dates: list, values: list) -> float:
     except Exception as e:
         print(f"Errore nel calcolo XIRR con pyxirr: {e}")
         return np.nan
+# utils/performance.py
+# ... (altre importazioni e funzioni) ...
 
+def calculate_annual_returns(portfolio_values_series: pd.Series) -> pd.Series:
+    """
+    Calcola i rendimenti annuali da una serie di valori di portafoglio giornalieri.
+    L'input portfolio_values_series deve avere un DatetimeIndex.
+    """
+    if not isinstance(portfolio_values_series, pd.Series) or portfolio_values_series.empty or \
+       not isinstance(portfolio_values_series.index, pd.DatetimeIndex) or len(portfolio_values_series) < 2:
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    # Raccogli i valori di fine anno (o l'ultimo valore disponibile per l'ultimo anno parziale)
+    # Usiamo resample('YE') per ottenere l'ultimo giorno di ogni anno.
+    # Per versioni pandas più recenti, 'YE' è preferito a 'A' o 'AS'.
+    # Se pandas < 2.2.0, 'A' potrebbe funzionare per fine anno.
+    try:
+        annual_values = portfolio_values_series.resample('YE').last() # YE per YearEnd
+    except AttributeError: # Potrebbe essere una versione pandas più vecchia
+        try:
+            annual_values = portfolio_values_series.resample('A').last() # 'A' per fine anno (deprecato ma fallback)
+        except Exception as e_resample:
+            print(f"Errore nel resampling annuale: {e_resample}")
+            return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+
+    if len(annual_values) < 2: # Serve almeno un inizio e una fine di un periodo annuale
+        # Potremmo avere un solo anno parziale, calcoliamo il rendimento per quel periodo se possibile
+        if len(portfolio_values_series) > 1:
+             first_val = portfolio_values_series.iloc[0]
+             last_val = portfolio_values_series.iloc[-1]
+             num_days = (portfolio_values_series.index[-1] - portfolio_values_series.index[0]).days
+             if num_days > 0 and first_val > 0 :
+                 # Annualizza il rendimento del periodo parziale
+                 period_return = (last_val / first_val) -1
+                 annualized_return = ((1 + period_return) ** (365.25 / num_days)) - 1
+                 # Crea una serie con l'anno come indice
+                 return pd.Series({portfolio_values_series.index[-1].year: annualized_return * 100}, name="Rendimento Annuale (%)")
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    annual_returns = annual_values.pct_change().dropna()
+    return annual_returns * 100 # In percentuale
 # Commentato per ora, dato che empyrical dava problemi di installazione
 # def calculate_sortino_ratio_empyrical(daily_returns: pd.Series, required_return_annual: float = 0.0) -> float:
 #     # ... (codice come definito precedentemente) ...
