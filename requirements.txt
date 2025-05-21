@@ -1,0 +1,15 @@
+streamlit
+pandas
+yfinance
+python-dateutil
+matplotlib
+numpy
+# Le seguenti sono elencate nel documento progettuale e potrebbero servire in futuro,
+# ma non sono strettamente usate nel codice attuale delle fasi 1 e 2.
+# Per ora, è meglio includere solo quelle strettamente necessarie per evitare problemi di build.
+# Le aggiungeremo quando le useremo effettivamente.
+# quantstats
+# ffn
+# empyrical
+# requests (già dipendenza di yfinance, ma non fa male elencarlo esplicitamente se lo si usa direttamente)
+# python-dotenv (non usato ora con yfinance)
