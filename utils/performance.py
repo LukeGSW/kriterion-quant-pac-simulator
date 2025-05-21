@@ -13,11 +13,7 @@ except ImportError:
     def pyxirr_xirr(dates, values, guess=None): # Funzione placeholder
         return np.nan
 
-try:
-    import empyrical
-except ImportError:
-    print("ATTENZIONE: Libreria empyrical non trovata. Sortino Ratio e altre metriche da empyrical non saranno disponibili.")
-    empyrical = None # Placeholder
+
 
 
 def get_total_capital_invested(pac_df: pd.DataFrame) -> float:
@@ -257,27 +253,3 @@ def calculate_xirr_metric(dates: list, values: list) -> float:
         print(f"Errore nel calcolo XIRR con pyxirr: {e}")
         return np.nan
 
-# --- Funzione per Sortino Ratio (usando empyrical) ---
-
-def calculate_sortino_ratio_empyrical(daily_returns: pd.Series, required_return_annual: float = 0.0) -> float:
-    """
-    Calcola il Sortino Ratio annualizzato usando empyrical.
-    required_return_annual è il tasso di rendimento minimo accettabile (MAR) annuale.
-    Empyrical annualizza automaticamente.
-    """
-    if empyrical is None:
-        print("INFO: Libreria empyrical non disponibile. Sortino Ratio non calcolabile.")
-        return np.nan
-    if daily_returns.empty or len(daily_returns) < 2 or daily_returns.isnull().all():
-        return np.nan
-    
-    # Empyrical si aspetta che required_return sia il rendimento medio giornaliero del target
-    # Se required_return_annual è 0.02 (2%), il giornaliero è (1+0.02)**(1/252)-1
-    daily_required_return = (1 + required_return_annual)**(1/252) - 1
-
-    try:
-        sortino = empyrical.sortino_ratio(daily_returns, required_return=daily_required_return)
-        return sortino if pd.notna(sortino) else np.nan
-    except Exception as e:
-        print(f"Errore nel calcolo del Sortino Ratio con empyrical: {e}")
-        return np.nan
