@@ -53,7 +53,7 @@ if rebalance_active_input:
 
 st.sidebar.subheader("Parametri Metriche Avanzate")
 risk_free_rate_input = st.sidebar.number_input("Tasso Risk-Free Annuale (%) per Sharpe", min_value=0.0, value=1.0, step=0.1, format="%.2f")
-mar_rate_input = st.sidebar.number_input("Tasso Rendimento Minimo Accettabile (MAR) Annuale (%) per Sortino", min_value=0.0, value=0.0, step=0.1, format="%.2f")
+#mar_rate_input = st.sidebar.number_input("Tasso Rendimento Minimo Accettabile (MAR) Annuale (%) per Sortino", min_value=0.0, value=0.0, step=0.1, format="%.2f")
 
 
 run_simulation_button = st.sidebar.button("🚀 Avvia Simulazione PAC")
