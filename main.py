@@ -126,6 +126,42 @@ if run_simulation_button:
                 )
 
             # --- ESEGUI SIMULAZIONE LUMP SUM ---
+            # ... (dopo la chiamata a run_pac_simulation)
+            # pac_total_df, asset_details_history_df = run_pac_simulation(...)
+
+            if pac_total_df.empty or 'PortfolioValue' not in pac_total_df.columns or len(pac_total_df) < 2:
+                st.error("Simulazione PAC (aggregata) non ha prodotto risultati sufficienti.")
+            else:
+                st.success("Simulazione PAC (aggregata) completata.")
+                # ... (calcolo metriche aggregate e tabella) ...
+                # ... (grafico equity line) ...
+                # ... (grafico drawdown) ...
+
+                # DEBUG per asset_details_history_df
+                st.subheader("--- DEBUG: Dati Dettagliati per Asset ---") # Aggiungi questo
+                if asset_details_history_df is not None and not asset_details_history_df.empty:
+                    st.write("`asset_details_history_df` NON è vuoto. Prime righe:")
+                    st.dataframe(asset_details_history_df.head())
+                    st.write(f"Colonne disponibili in `asset_details_history_df`: {asset_details_history_df.columns.tolist()}")
+                elif asset_details_history_df is None:
+                    st.write("`asset_details_history_df` È None.")
+                else: # È un DataFrame vuoto
+                    st.write("`asset_details_history_df` È vuoto.")
+
+
+                # --- NUOVO: STACKED AREA CHART PER ALLOCAZIONE ASSET ---
+                if not asset_details_history_df.empty: # Questa condizione è importante
+                    st.subheader("Allocazione Dinamica del Portafoglio PAC nel Tempo (Valore per Asset)")
+                    # ... (resto della logica per lo stacked area chart come l'avevamo definita) ...
+                else:
+                    st.warning("Dati dettagliati per asset non disponibili per il grafico dell'allocazione dinamica (asset_details_history_df è vuoto o non valido).") # Modificato messaggio
+
+                # --- NUOVO: TABELLE AGGIUNTIVE (QUOTE e WAP) ---
+                if not asset_details_history_df.empty: # Anche qui la condizione è importante
+                    st.subheader("Dettagli Finali per Asset nel PAC")
+                    # ... (resto della logica per la tabella WAP/Quote come l'avevamo definita) ...
+                else:
+                    st.warning("Dati dettagliati per asset non disponibili per la tabella Quote/WAP (asset_details_history_df è vuoto o non valido).") # Modificato messaggio
             lump_sum_df = pd.DataFrame()
             if not pac_total_df.empty and 'PortfolioValue' in pac_total_df.columns and len(pac_total_df) >= 2:
                 total_invested_pac_for_ls = get_total_capital_invested(pac_total_df)
