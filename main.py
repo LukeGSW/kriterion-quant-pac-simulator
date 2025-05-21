@@ -173,11 +173,11 @@ if run_simulation_button:
 
                 metrics_to_display["Volatilità Ann."] = f"{annual_volatility:.2f}%" if pd.notna(annual_volatility) else "N/A"
                 metrics_to_display["Sharpe Ratio"] = f"{sharpe:.2f}" if pd.notna(sharpe) else "N/A"
-                if pd.notna(sortino): # Mostra Sortino se calcolato
-                     metrics_to_display["Sortino Ratio"] = f"{sortino:.2f}"
-                else:
-                    metrics_to_display["Sortino Ratio"] = "N/A"
-                metrics_to_display["Max Drawdown"] = f"{mdd:.2f}%" if pd.notna(mdd) else "N/A"
+                #if pd.notna(sortino): # Mostra Sortino se calcolato
+                     #metrics_to_display["Sortino Ratio"] = f"{sortino:.2f}"
+               # else:
+                   # metrics_to_display["Sortino Ratio"] = "N/A"
+               # metrics_to_display["Max Drawdown"] = f"{mdd:.2f}%" if pd.notna(mdd) else "N/A"
                 
 
                 num_metrics_cols_to_show = len(metrics_to_display)
