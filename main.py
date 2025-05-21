@@ -1,36 +1,112 @@
-# main.py (versione di debug super semplificata)
+# simulatore_pac/main.py
+
 import streamlit as st
-import pandas as pd # Importa anche se non lo usi subito, per testare l'import
-import yfinance as yf # Importa anche se non lo usi subito
-from datetime import datetime, date # Aggiunto date
+import pandas as pd
+from datetime import datetime, date # Assicurati che 'date' sia importato
 
-st.set_page_config(page_title="Test Debug PAC", layout="wide") # Deve essere la prima chiamata st
+# Assumendo che i tuoi moduli siano nella sottocartella 'utils'
+from utils.data_loader import load_historical_data_yf
+from utils.pac_engine import run_basic_pac_simulation # Assicurati che questo file ora importi pandas
+from utils.performance import (
+    get_total_capital_invested,
+    get_final_portfolio_value,
+    calculate_total_return_percentage,
+    calculate_cagr,
+    get_duration_years
+)
 
-st.write("--- Script Iniziato ---")
+# Configurazione della pagina Streamlit
+st.set_page_config(page_title="Simulatore PAC Base", layout="wide")
 
-try:
-    st.write("--- Importazioni Utilità Tentativo ---")
-    # Prova a importare le tue utilità
-    from utils.data_loader import load_historical_data_yf
-    from utils.pac_engine import run_basic_pac_simulation
-    from utils.performance import get_total_capital_invested 
-    st.write("--- Importazioni Utilità Riuscite ---")
+st.title("📘 Simulatore di Piano di Accumulo Capitale (PAC)")
+st.caption("Versione Base - Progetto Kriterion Quant")
 
-    st.title("📘 Simulatore PAC - Test di Debug")
-    st.write("--- Titolo Scritto ---")
+# --- Sidebar per Input Utente ---
+st.sidebar.header("Parametri della Simulazione")
 
-    # Test Sidebar Semplice
-    st.sidebar.header("Test Input")
-    test_input = st.sidebar.text_input("Input di Test", "Ciao")
-    st.write(f"--- Valore Input di Test: {test_input} ---")
-    
-    if st.sidebar.button("Test Bottone"):
-        st.write("--- Bottone Premuto ---")
-        st.balloons()
-    
-    st.write("--- Script Terminato Normalmente (parte visibile) ---")
+ticker_symbol = st.sidebar.text_input("Ticker Strumento Finanziario (es. AAPL, GOOGL, CSPX.AS, VWCE.DE)", "AAPL")
+monthly_investment_input = st.sidebar.number_input("Importo Versamento Mensile (€/$)", min_value=10.0, value=150.0, step=10.0)
 
-except Exception as e:
-    st.error(f"ERRORE CRITICO NELLO SCRIPT PRINCIPALE: {e}")
-    import traceback
-    st.text(traceback.format_exc())
+default_start_date_pac = date(2020, 1, 1)
+pac_start_date_input = st.sidebar.date_input("Data Inizio PAC", default_start_date_pac)
+duration_months_input = st.sidebar.number_input("Durata PAC (in mesi)", min_value=6, value=36, step=1)
+
+run_simulation_button = st.sidebar.button("🚀 Avvia Simulazione PAC")
+
+# --- Area Principale per Output ---
+if run_simulation_button:
+    st.header(f"Risultati Simulazione PAC per: {ticker_symbol}")
+
+    pac_start_date_str = pac_start_date_input.strftime('%Y-%m-%d')
+
+    data_fetch_start_date = (pac_start_date_input - pd.Timedelta(days=90)).strftime('%Y-%m-%d')
+    sim_end_date_approx = pd.to_datetime(pac_start_date_input) + pd.DateOffset(months=duration_months_input)
+    data_fetch_end_date = (sim_end_date_approx + pd.Timedelta(days=30)).strftime('%Y-%m-%d')
+
+    with st.spinner(f"Caricamento dati storici per {ticker_symbol}..."):
+        historical_data = load_historical_data_yf(
+            ticker=ticker_symbol,
+            start_date=data_fetch_start_date,
+            end_date=data_fetch_end_date
+        )
+
+    if historical_data.empty:
+        st.error(f"Impossibile caricare i dati storici per {ticker_symbol}. Controlla il ticker o il periodo.")
+    else:
+        st.success(f"Dati storici per {ticker_symbol} caricati correttamente.")
+        
+        with st.spinner("Esecuzione simulazione PAC..."):
+            pac_simulation_df = run_basic_pac_simulation(
+                price_data=historical_data.copy(),
+                monthly_investment=monthly_investment_input,
+                start_date_pac=pac_start_date_str,
+                duration_months=duration_months_input
+            )
+
+        if pac_simulation_df.empty or 'PortfolioValue' not in pac_simulation_df.columns:
+            st.error("La simulazione PAC non ha prodotto risultati validi.")
+        else:
+            st.success("Simulazione PAC completata.")
+
+            total_invested = get_total_capital_invested(pac_simulation_df)
+            final_value = get_final_portfolio_value(pac_simulation_df)
+            total_return_perc = calculate_total_return_percentage(final_value, total_invested)
+            
+            duration_yrs = get_duration_years(pac_simulation_df)
+            cagr_perc = calculate_cagr(final_value, total_invested, duration_yrs)
+
+            st.subheader("Metriche di Performance Riepilogative")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Capitale Totale Investito", f"{total_invested:,.2f}")
+            col2.metric("Valore Finale Portafoglio", f"{final_value:,.2f}")
+            col3.metric("Rendimento Totale", f"{total_return_perc:.2f}%")
+            if pd.notna(cagr_perc):
+                col4.metric("CAGR", f"{cagr_perc:.2f}%")
+            else:
+                col4.metric("CAGR", "N/A")
+            
+            st.write(f"_Durata approssimativa della simulazione: {duration_yrs:.2f} anni._")
+
+            st.subheader("Andamento del Portafoglio nel Tempo")
+            
+            chart_df = pac_simulation_df[['Date', 'PortfolioValue', 'InvestedCapital']].copy()
+            if 'Date' in chart_df.columns: # Assicurati che la colonna Date esista
+                 chart_df['Date'] = pd.to_datetime(chart_df['Date'])
+                 chart_df = chart_df.set_index('Date') # Imposta Date come indice per st.line_chart
+            
+            if not chart_df.empty:
+                st.line_chart(chart_df)
+            else:
+                st.warning("Non ci sono dati sufficienti per visualizzare il grafico.")
+            
+            if st.checkbox("Mostra dati dettagliati della simulazione PAC"):
+                st.dataframe(pac_simulation_df.style.format({
+                    "Price": "{:.2f}", "InvestedCapital": "{:,.2f}",
+                    "SharesOwned": "{:.4f}", "CashHeld": "{:.2f}",
+                    "PortfolioValue": "{:,.2f}"
+                }))
+else:
+    st.info("Inserisci i parametri nella sidebar a sinistra e avvia la simulazione.")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("Progetto Didattico Kriterion Quant")
