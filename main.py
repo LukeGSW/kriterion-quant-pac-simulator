@@ -2,11 +2,13 @@
 
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date # Assicurati che 'date' sia importato
+from datetime import datetime, date
 
-# Assumendo che i tuoi moduli siano nella sottocartella 'utils'
+# Importazioni dai tuoi moduli utils
+# Assicurati che utils/pac_engine.py abbia la funzione 'run_pac_simulation'
+# e che importi pandas al suo interno.
 from utils.data_loader import load_historical_data_yf
-from utils.pac_engine import run_basic_pac_simulation # Assicurati che questo file ora importi pandas
+from utils.pac_engine import run_pac_simulation # <--- NOME FUNZIONE CORRETTO
 from utils.performance import (
     get_total_capital_invested,
     get_final_portfolio_value,
@@ -16,10 +18,10 @@ from utils.performance import (
 )
 
 # Configurazione della pagina Streamlit
-st.set_page_config(page_title="Simulatore PAC Base", layout="wide")
+st.set_page_config(page_title="Simulatore PAC Avanzato", layout="wide")
 
 st.title("📘 Simulatore di Piano di Accumulo Capitale (PAC)")
-st.caption("Versione Base - Progetto Kriterion Quant")
+st.caption("Versione con Reinvestimento Dividendi - Progetto Kriterion Quant")
 
 # --- Sidebar per Input Utente ---
 st.sidebar.header("Parametri della Simulazione")
@@ -31,6 +33,9 @@ default_start_date_pac = date(2020, 1, 1)
 pac_start_date_input = st.sidebar.date_input("Data Inizio PAC", default_start_date_pac)
 duration_months_input = st.sidebar.number_input("Durata PAC (in mesi)", min_value=6, value=36, step=1)
 
+# Nuovo input per il reinvestimento dei dividendi
+reinvest_dividends_input = st.sidebar.checkbox("Reinvesti Dividendi?", value=True)
+
 run_simulation_button = st.sidebar.button("🚀 Avvia Simulazione PAC")
 
 # --- Area Principale per Output ---
@@ -41,7 +46,7 @@ if run_simulation_button:
 
     data_fetch_start_date = (pac_start_date_input - pd.Timedelta(days=90)).strftime('%Y-%m-%d')
     sim_end_date_approx = pd.to_datetime(pac_start_date_input) + pd.DateOffset(months=duration_months_input)
-    data_fetch_end_date = (sim_end_date_approx + pd.Timedelta(days=30)).strftime('%Y-%m-%d')
+    data_fetch_end_date = (sim_end_date_approx + pd.Timedelta(days=60)).strftime('%Y-%m-%d') # Aumentato buffer per dati dividendi
 
     with st.spinner(f"Caricamento dati storici per {ticker_symbol}..."):
         historical_data = load_historical_data_yf(
@@ -56,11 +61,13 @@ if run_simulation_button:
         st.success(f"Dati storici per {ticker_symbol} caricati correttamente.")
         
         with st.spinner("Esecuzione simulazione PAC..."):
-            pac_simulation_df = run_basic_pac_simulation(
+            # Chiamata alla funzione aggiornata con il nuovo parametro
+            pac_simulation_df = run_pac_simulation( # <--- NOME FUNZIONE CORRETTO
                 price_data=historical_data.copy(),
                 monthly_investment=monthly_investment_input,
                 start_date_pac=pac_start_date_str,
-                duration_months=duration_months_input
+                duration_months=duration_months_input,
+                reinvest_dividends=reinvest_dividends_input # <--- NUOVO PARAMETRO PASSATO
             )
 
         if pac_simulation_df.empty or 'PortfolioValue' not in pac_simulation_df.columns:
@@ -72,27 +79,52 @@ if run_simulation_button:
             final_value = get_final_portfolio_value(pac_simulation_df)
             total_return_perc = calculate_total_return_percentage(final_value, total_invested)
             
-            duration_yrs = get_duration_years(pac_simulation_df)
+            duration_yrs = get_duration_years(pac_simulation_df) # Assicurati che pac_simulation_df abbia la colonna 'Date'
             cagr_perc = calculate_cagr(final_value, total_invested, duration_yrs)
 
+            # Estrai i dividendi totali ricevuti/reinvestiti
+            total_dividends_cumulative = 0.0
+            if 'DividendsReceivedCumulative' in pac_simulation_df.columns:
+                total_dividends_cumulative = pac_simulation_df['DividendsReceivedCumulative'].iloc[-1]
+
+
             st.subheader("Metriche di Performance Riepilogative")
-            col1, col2, col3, col4 = st.columns(4)
+            # Aggiungiamo una colonna per i dividendi se reinvestiti
+            if reinvest_dividends_input and total_dividends_cumulative > 0:
+                col1, col2, col3, col4, col5 = st.columns(5)
+            else:
+                col1, col2, col3, col4 = st.columns(4)
+
             col1.metric("Capitale Totale Investito", f"{total_invested:,.2f}")
             col2.metric("Valore Finale Portafoglio", f"{final_value:,.2f}")
-            col3.metric("Rendimento Totale", f"{total_return_perc:.2f}%")
-            if pd.notna(cagr_perc):
-                col4.metric("CAGR", f"{cagr_perc:.2f}%")
+            
+            if reinvest_dividends_input and total_dividends_cumulative > 0:
+                col3.metric("Dividendi Reinvestiti", f"{total_dividends_cumulative:,.2f}")
+                col4.metric("Rendimento Totale", f"{total_return_perc:.2f}%")
+                if pd.notna(cagr_perc):
+                    col5.metric("CAGR", f"{cagr_perc:.2f}%")
+                else:
+                    col5.metric("CAGR", "N/A")
             else:
-                col4.metric("CAGR", "N/A")
+                col3.metric("Rendimento Totale", f"{total_return_perc:.2f}%")
+                if pd.notna(cagr_perc):
+                    col4.metric("CAGR", f"{cagr_perc:.2f}%")
+                else:
+                    col4.metric("CAGR", "N/A")
             
             st.write(f"_Durata approssimativa della simulazione: {duration_yrs:.2f} anni._")
+            if reinvest_dividends_input:
+                st.write(f"_I dividendi sono stati reinvestiti._")
+            else:
+                st.write(f"_I dividendi NON sono stati reinvestiti (se pagati, sarebbero stati incassati e non aggiunti al capitale)._")
+
 
             st.subheader("Andamento del Portafoglio nel Tempo")
             
             chart_df = pac_simulation_df[['Date', 'PortfolioValue', 'InvestedCapital']].copy()
-            if 'Date' in chart_df.columns: # Assicurati che la colonna Date esista
+            if 'Date' in chart_df.columns:
                  chart_df['Date'] = pd.to_datetime(chart_df['Date'])
-                 chart_df = chart_df.set_index('Date') # Imposta Date come indice per st.line_chart
+                 chart_df = chart_df.set_index('Date')
             
             if not chart_df.empty:
                 st.line_chart(chart_df)
@@ -100,11 +132,21 @@ if run_simulation_button:
                 st.warning("Non ci sono dati sufficienti per visualizzare il grafico.")
             
             if st.checkbox("Mostra dati dettagliati della simulazione PAC"):
-                st.dataframe(pac_simulation_df.style.format({
+                # Format columns for better readability
+                formatters = {
                     "Price": "{:.2f}", "InvestedCapital": "{:,.2f}",
                     "SharesOwned": "{:.4f}", "CashHeld": "{:.2f}",
                     "PortfolioValue": "{:,.2f}"
-                }))
+                }
+                if 'DividendsReceivedCumulative' in pac_simulation_df.columns:
+                    formatters['DividendsReceivedCumulative'] = "{:,.2f}"
+                
+                # Rimuovi l'indice numerico se presente prima di passarlo a st.dataframe
+                display_df = pac_simulation_df.copy()
+                if isinstance(display_df.index, pd.RangeIndex):
+                    display_df.set_index('Date', inplace=True) # Se Date è una colonna e vogliamo un DatetimeIndex per la visualizzazione
+                
+                st.dataframe(display_df.style.format(formatters))
 else:
     st.info("Inserisci i parametri nella sidebar a sinistra e avvia la simulazione.")
 
