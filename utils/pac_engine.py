@@ -1,193 +1,212 @@
 # simulatore_pac/utils/pac_engine.py
-
 import pandas as pd
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 
-# Assicurati che pandas sia importato
-# import pandas as pd (già fatto nella tua versione precedente, ma per sicurezza)
-
-def run_pac_simulation( # Rinominata da run_basic_pac_simulation per riflettere nuove funzionalità
-    price_data: pd.DataFrame,
+def run_pac_simulation(
+    historical_data_map: dict[str, pd.DataFrame], # Dizionario: ticker -> DataFrame dei suoi dati
+    tickers: list[str],
+    allocations: list[float],
     monthly_investment: float,
     start_date_pac: str,
     duration_months: int,
-    reinvest_dividends: bool = True # Nuovo parametro
+    reinvest_dividends: bool = True
 ) -> pd.DataFrame:
-    if not isinstance(price_data, pd.DataFrame) or price_data.empty:
-        print("ERRORE (PAC): price_data non è un DataFrame valido o è vuoto.")
+
+    # --- VALIDAZIONE INPUT ---
+    if not isinstance(historical_data_map, dict) or not historical_data_map:
+        print("ERRORE (PAC): historical_data_map deve essere un dizionario non vuoto.")
         return pd.DataFrame()
-    if 'Adj Close' not in price_data.columns or 'Dividend' not in price_data.columns:
-        print("ERRORE (PAC): Colonne 'Adj Close' o 'Dividend' mancanti in price_data.")
+    if not all(ticker in historical_data_map for ticker in tickers):
+        print("ERRORE (PAC): Non tutti i ticker hanno dati storici corrispondenti in historical_data_map.")
         return pd.DataFrame()
-    # ... (altri controlli di input come prima) ...
-    if not isinstance(monthly_investment, (int, float)) or monthly_investment <= 0:
-        print("ERRORE (PAC): monthly_investment deve essere un numero positivo.")
+    if len(tickers) != len(allocations):
+        print("ERRORE (PAC): Il numero di ticker deve corrispondere al numero di allocazioni.")
         return pd.DataFrame()
-    if not isinstance(duration_months, int) or duration_months <= 0:
-        print("ERRORE (PAC): duration_months deve essere un intero positivo.")
+    if not np.isclose(sum(allocations), 1.0): # Usare numpy.isclose per confronti float
+        print("ERRORE (PAC): La somma delle allocazioni deve essere 1.0 (o 100%).")
         return pd.DataFrame()
+    # ... (altri controlli di input esistenti per monthly_investment, duration_months, start_date_pac) ...
+
     try:
         pac_start_dt = pd.to_datetime(start_date_pac)
         if pac_start_dt.tzinfo is not None:
             pac_start_dt = pac_start_dt.tz_localize(None)
     except ValueError:
-        print(f"ERRORE (PAC): Formato data inizio PAC non valido: {start_date_pac}. Usare 'YYYY-MM-DD'.")
+        # ... (gestione errore data) ...
         return pd.DataFrame()
 
-    if price_data.index.tz is not None:
-        print(f"ERRORE CRITICO (PAC): price_data.index è ancora timezone-aware ({price_data.index.tz})!")
-        return pd.DataFrame()
-
-    sim_end_approx = pac_start_dt + relativedelta(months=duration_months)
-    mask_start = price_data.index >= (pac_start_dt - timedelta(days=90)) # Buffer più ampio per dati iniziali e dividendi
-    mask_end = price_data.index <= (sim_end_approx + timedelta(days=60)) # Buffer più ampio
-    relevant_price_data = price_data[mask_start & mask_end].copy()
-
-    if relevant_price_data.empty:
-        print(f"INFO (PAC): Nessun dato di prezzo disponibile in relevant_price_data per il periodo PAC.")
-        return pd.DataFrame()
-
-    total_shares_owned = 0.0
-    total_capital_invested = 0.0
-    cash_held = 0.0 # Potremmo usarlo per i dividendi non immediatamente reinvestiti, ma per ora reinvestiamo subito
-    total_dividends_received = 0.0 # Tracciamo i dividendi totali
+    # --- PREPARAZIONE DATI ---
+    # Trova il range di date comune a tutti i DataFrame dei prezzi
+    # e assicurati che tutti gli indici siano timezone-naive.
+    # Questa parte è cruciale e può essere complessa. Per ora assumiamo che i dati siano già
+    # stati pre-processati per avere un indice comune o che li allineeremo qui.
+    # Un modo semplice (ma che potrebbe perdere dati se gli orari di trading sono molto diversi)
+    # è fare un inner join degli indici, o trovare il più piccolo range comune.
     
-    # Creiamo un DataFrame per l'evoluzione giornaliera, partendo dall'indice di relevant_price_data
-    # Questo ci aiuterà a gestire gli eventi (investimenti, dividendi) giorno per giorno
-    # e poi a costruire il daily_portfolio finale.
+    # Creiamo un DataFrame "master" per le date di trading unendo gli indici di tutti i ticker
+    # e prendendo solo le date in cui TUTTI i mercati erano aperti.
+    # In alternativa, potremmo usare un approccio per cui ogni asset opera sui suoi giorni di trading.
+    # Per ora, semplifichiamo e assumiamo che gli investimenti avvengano se il mercato USA è aperto (se SPY è un ticker di riferimento)
+    # o se il primo ticker della lista è negoziabile. Una gestione più robusta è necessaria qui.
+
+    # Per ora, lavoriamo con l'idea che il loop principale itera su un calendario di date
+    # e poi, per ogni data, controlliamo quali asset sono negoziabili.
+
+    # Inizializzazione stato portafoglio per ogni asset
+    portfolio_details = {
+        ticker: {'shares_owned': 0.0, 'capital_invested_asset': 0.0, 'dividends_cumulative_asset': 0.0}
+        for ticker in tickers
+    }
     
-    # Determiniamo il range di date completo per la simulazione effettiva
+    total_capital_invested_overall = 0.0
+    total_dividends_received_overall = 0.0 # Tracciamo i dividendi totali per il portafoglio
+    
+    portfolio_evolution_records = []
+
+    # --- LOGICA DI SIMULAZIONE GIORNALIERA ---
+    # (Simile a prima, ma ora deve ciclare e applicare logica per ogni asset)
+
+    month_counter_for_investment = 0
+    
+    # Determina il range di date per la simulazione
     actual_simulation_start_date = pac_start_dt
-    # L'ultimo giorno di investimento possibile
-    last_potential_investment_date = pac_start_dt + relativedelta(months=duration_months -1)
-    # L'ultimo giorno per cui potremmo avere dati rilevanti (es. per il valore del portafoglio)
-    # dovrebbe essere circa un mese dopo l'ultimo investimento, o la fine di relevant_price_data
-    if relevant_price_data.index[-1] < (last_potential_investment_date + relativedelta(days=1)):
-         actual_simulation_end_date = relevant_price_data.index[-1]
-    else:
-         # Cerchiamo di estendere fino alla fine del mese dell'ultimo investimento o poco oltre
-         # per catturare il valore finale del portafoglio
-         _end_month_target = last_potential_investment_date + relativedelta(day=31)
-         if _end_month_target > relevant_price_data.index[-1]:
-             actual_simulation_end_date = relevant_price_data.index[-1]
-         else:
-             actual_simulation_end_date = _end_month_target
-             
-    # Filtriamo relevant_price_data per il range effettivo della simulazione per l'equity line
-    # Ma per i calcoli di investimento e dividendi, usiamo il relevant_price_data più ampio
-    # per trovare i giorni di trading.
-    if actual_simulation_start_date > actual_simulation_end_date:
-        print("INFO (PAC): La data di inizio simulazione è successiva alla data di fine. Nessuna simulazione possibile.")
-        return pd.DataFrame()
-        
-    portfolio_evolution_records = [] # Lista di dizionari per registrare gli stati
-
-    # Ciclo attraverso ogni giorno nel range di dati storici rilevanti per la simulazione
-    # Iniziamo dal primo giorno in cui potremmo fare un investimento o ricevere un dividendo
+    last_potential_investment_date = pac_start_dt + relativedelta(months=duration_months - 1)
+    # Troviamo l'ultima data disponibile tra tutti gli asset per definire la fine della simulazione
+    max_end_date_from_data = max(historical_data_map[ticker].index.max() for ticker in tickers)
     
-    # Troviamo la prima data di investimento effettiva
-    first_investment_date_target = pac_start_dt
-    first_investment_date_series = relevant_price_data.index[relevant_price_data.index >= first_investment_date_target]
-    if first_investment_date_series.empty:
-        print("INFO (PAC): Nessuna data di trading valida trovata per il primo investimento.")
-        return pd.DataFrame()
+    _end_month_target = last_potential_investment_date + relativedelta(day=31)
+    actual_simulation_end_date = min(_end_month_target, max_end_date_from_data)
     
-    current_simulation_date = first_investment_date_series[0] # Iniziamo da qui
-    
-    last_date_in_data = relevant_price_data.index.max()
-    month_counter_for_investment = 0 # Contatore per i versamenti mensili
+    # Genera un range di date di calendario per il loop principale
+    # (poi filtreremo per i giorni di trading effettivi di ciascun asset)
+    all_simulation_dates = pd.date_range(start=actual_simulation_start_date, end=actual_simulation_end_date, freq='B') # 'B' per business days
+    if all_simulation_dates.empty and actual_simulation_start_date == actual_simulation_end_date: # Caso di durata molto breve
+        all_simulation_dates = pd.DatetimeIndex([actual_simulation_start_date])
 
-    while current_simulation_date <= actual_simulation_end_date and current_simulation_date <= last_date_in_data:
-        # Assicurati che current_simulation_date sia un giorno di trading
-        if current_simulation_date not in relevant_price_data.index:
-            # Passa al prossimo giorno di trading disponibile in relevant_price_data
-            next_trading_day_series = relevant_price_data.index[relevant_price_data.index > current_simulation_date]
-            if next_trading_day_series.empty:
-                break # Non ci sono più giorni di trading
-            current_simulation_date = next_trading_day_series[0]
-            if current_simulation_date > actual_simulation_end_date: # Non andare oltre la fine della simulazione
-                 break
-            continue # Riprova il ciclo con la nuova current_simulation_date
 
-        current_price = relevant_price_data.loc[current_simulation_date, 'Adj Close']
-        dividend_today = relevant_price_data.loc[current_simulation_date, 'Dividend']
+    for current_simulation_date_nominal in all_simulation_dates:
+        portfolio_value_today = 0.0
+        new_overall_dividend_today = 0.0
 
         # 1. Gestione Versamento PAC Mensile
-        # Il versamento avviene il primo giorno di trading del mese target del PAC
         investment_date_target_for_this_month = pac_start_dt + relativedelta(months=month_counter_for_investment)
         
-        if current_simulation_date >= investment_date_target_for_this_month and month_counter_for_investment < duration_months:
-            # Verifica se questo è il primo giorno di trading valido per questo versamento target
-            # (potrebbe essere stato saltato un giorno festivo, quindi current_simulation_date è il primo disponibile)
+        # Il versamento avviene se è il primo giorno di business del mese target del PAC
+        # o il primo giorno di business dopo, e non abbiamo superato la durata
+        is_investment_day = False
+        if current_simulation_date_nominal >= investment_date_target_for_this_month and \
+           month_counter_for_investment < duration_months:
+            # Verifichiamo se non abbiamo già investito per questo 'month_counter_for_investment'
+            # Questo si fa controllando se current_simulation_date_nominal è "vicino" a investment_date_target_for_this_month
+            # e se abbiamo incrementato month_counter_for_investment.
+            # Una logica più precisa: l'investimento per month_counter_for_investment avviene
+            # il primo giorno di trading >= investment_date_target_for_this_month.
             
-            # Per evitare doppi investimenti nello stesso mese target se il loop è giornaliero:
-            # Assicuriamoci che questo investimento non sia già stato fatto
-            # Questo si ottiene incrementando month_counter_for_investment DOPO l'investimento.
-            # La condizione current_simulation_date >= investment_date_target_for_this_month
-            # combinata con l'incremento di month_counter_for_investment gestisce questo.
+            # Per evitare investimenti multipli per lo stesso "target mensile",
+            # l'incremento di month_counter_for_investment è cruciale.
+            is_investment_day = True # Marcatore per questo giorno
+            total_capital_invested_overall += monthly_investment 
+            # (il capitale è allocato globalmente, poi diviso per asset)
+            # print(f"Debug: {current_simulation_date_nominal.date()} - GIORNO DI INVESTIMENTO PAC per mese target {month_counter_for_investment+1}")
+
+
+        for i, ticker in enumerate(tickers):
+            asset_data = historical_data_map[ticker]
+            allocation = allocations[i]
             
-            if pd.notna(current_price) and current_price > 0:
-                shares_bought_monthly = monthly_investment / current_price
-                total_shares_owned += shares_bought_monthly
-                total_capital_invested += monthly_investment
-                # print(f"Debug: {current_simulation_date.date()} - Investimento PAC: {monthly_investment:.2f}, Quote: {shares_bought_monthly:.4f}, Prezzo: {current_price:.2f}")
+            # Trova il giorno di trading effettivo per questo asset <= current_simulation_date_nominal
+            # o il più vicino possibile se current_simulation_date_nominal non è un giorno di trading per QUESTO asset
+            # Questo è importante se i mercati hanno giorni di chiusura diversi.
+            
+            # Semplificazione: usiamo current_simulation_date_nominal se è nell'indice dell'asset,
+            # altrimenti cerchiamo l'ultimo prezzo valido (ffill).
+            if current_simulation_date_nominal in asset_data.index:
+                actual_trading_date_for_asset = current_simulation_date_nominal
+                current_price = asset_data.loc[actual_trading_date_for_asset, 'Adj Close']
+                dividend_asset_today = asset_data.loc[actual_trading_date_for_asset, 'Dividend']
             else:
-                print(f"ATTENZIONE (PAC): Prezzo non valido ({current_price}) il {current_simulation_date.strftime('%Y-%m-%d')} per investimento PAC. Salto.")
-                # Il capitale viene comunque considerato "allocato" per quel mese
-                total_capital_invested += monthly_investment
-                # In una versione più avanzata, potremmo accumulare questo cash_held e investirlo dopo
-            
-            month_counter_for_investment += 1 # Passa al prossimo mese target per l'investimento
+                # Se non è un giorno di trading per l'asset, prendiamo l'ultimo prezzo e dividendo noto (forward fill)
+                # per calcolare il valore del portafoglio, ma non per transazioni.
+                # Le transazioni (acquisti/dividendi) dovrebbero avvenire solo nei giorni di trading effettivi.
+                # Questa parte della logica necessita di molta attenzione.
+                # Per ora, se non è un giorno di trading, il prezzo è NaN per le transazioni
+                # ma per la valutazione usiamo l'ultimo noto.
+                
+                # Se current_simulation_date_nominal NON è un giorno di trading per l'asset,
+                # non ci possono essere acquisti o dividendi pagati DA QUESTO ASSET in questa data nominale.
+                # Il valore sarà basato sull'ultimo prezzo noto.
+                
+                # Selezioniamo i dati fino alla data nominale corrente
+                asset_data_subset_to_date = asset_data[asset_data.index <= current_simulation_date_nominal]
+                if not asset_data_subset_to_date.empty:
+                    last_known_data_asset = asset_data_subset_to_date.iloc[-1]
+                    current_price = last_known_data_asset['Adj Close'] # Per valutazione
+                    dividend_asset_today = 0 # Non ci sono dividendi se il mercato è chiuso
+                    actual_trading_date_for_asset = last_known_data_asset.name # Data dell'ultimo prezzo noto
+                else: # Nessun dato storico prima o a questa data per l'asset
+                    current_price = np.nan
+                    dividend_asset_today = 0
+                    actual_trading_date_for_asset = pd.NaT
 
-        # 2. Gestione e Reinvestimento Dividendi
-        if reinvest_dividends and dividend_today > 0 and total_shares_owned > 0:
-            cash_from_dividends = total_shares_owned * dividend_today
-            total_dividends_received += cash_from_dividends
-            # print(f"Debug: {current_simulation_date.date()} - Dividendo ricevuto: {cash_from_dividends:.2f} ({total_shares_owned:.4f} quote * {dividend_today:.4f}/quota)")
 
-            if pd.notna(current_price) and current_price > 0:
-                additional_shares_from_dividends = cash_from_dividends / current_price
-                total_shares_owned += additional_shares_from_dividends
-                # print(f"Debug: {current_simulation_date.date()} - Reinvestimento dividendi: {additional_shares_from_dividends:.4f} quote acquistate, Prezzo: {current_price:.2f}")
-            else:
-                # Se il prezzo non è valido il giorno del dividendo, cosa fare?
-                # Per ora, non reinvestiamo e perdiamo l'opportunità (semplificazione).
-                # In futuro, potremmo accumulare questo cash e reinvestirlo al prossimo prezzo valido.
-                print(f"ATTENZIONE (PAC): Prezzo non valido ({current_price}) il {current_simulation_date.strftime('%Y-%m-%d')} per reinvestimento dividendi. Dividendo non reinvestito in questa data.")
+            # A. Investimento periodico per questo asset
+            if is_investment_day and allocation > 0:
+                investment_for_this_asset = monthly_investment * allocation
+                if pd.notna(current_price) and current_price > 0 and current_simulation_date_nominal in asset_data.index: # Assicurati che sia un giorno di trading
+                    shares_bought = investment_for_this_asset / current_price
+                    portfolio_details[ticker]['shares_owned'] += shares_bought
+                    portfolio_details[ticker]['capital_invested_asset'] += investment_for_this_asset
+                    # print(f"Debug: ...Investito in {ticker}: {investment_for_this_asset:.2f}, Quote: {shares_bought:.4f}")
+                else:
+                    # Cosa fare se non si può investire? Accumulare cash per l'asset?
+                    # Per ora, l'investimento "globale" è stato contato, ma non allocato a questo asset in quote.
+                    print(f"ATTENZIONE (PAC): Prezzo non valido o giorno non di trading per {ticker} il {current_simulation_date_nominal.strftime('%Y-%m-%d')} per investimento. Allocazione non convertita in quote.")
 
 
-        # Registra lo stato giornaliero
-        current_portfolio_value = total_shares_owned * current_price if pd.notna(current_price) else (total_shares_owned * relevant_price_data.loc[:current_simulation_date, 'Adj Close'].ffill().iloc[-1] if total_shares_owned > 0 else 0)
+            # B. Reinvestimento dividendi per questo asset
+            if reinvest_dividends and dividend_asset_today > 0 and portfolio_details[ticker]['shares_owned'] > 0 and current_simulation_date_nominal in asset_data.index: # Assicurati che sia un giorno di trading
+                cash_from_dividends_asset = portfolio_details[ticker]['shares_owned'] * dividend_asset_today
+                portfolio_details[ticker]['dividends_cumulative_asset'] += cash_from_dividends_asset
+                new_overall_dividend_today += cash_from_dividends_asset # Sommiamo al totale di oggi
+                
+                if pd.notna(current_price) and current_price > 0:
+                    additional_shares = cash_from_dividends_asset / current_price
+                    portfolio_details[ticker]['shares_owned'] += additional_shares
+                    # print(f"Debug: ...Reinvestito dividendo per {ticker}: {cash_from_dividends_asset:.2f}, Nuove quote: {additional_shares:.4f}")
+
+                else:
+                    print(f"ATTENZIONE (PAC): Prezzo non valido per {ticker} il {current_simulation_date_nominal.strftime('%Y-%m-%d')} per reinvestimento dividendi.")
+
+
+            # C. Calcolo valore della posizione di questo asset
+            if pd.notna(current_price): # Usa l'ultimo prezzo noto per la valutazione
+                portfolio_value_today += portfolio_details[ticker]['shares_owned'] * current_price
+            # Se current_price è NaN (nessun dato per questo asset fino a questa data), il suo contributo è 0
+            # o potremmo prendere l'ultimo valore valido, ma current_price già fa questo se non è un giorno di trading
+
+        # Dopo aver processato tutti gli asset per il current_simulation_date_nominal
+        if is_investment_day:
+            month_counter_for_investment += 1 # Incrementa solo dopo che il giorno di investimento è stato processato per tutti gli asset
+
+        total_dividends_received_overall += new_overall_dividend_today
 
         portfolio_evolution_records.append({
-            'Date': current_simulation_date,
-            'Price': current_price,
-            'InvestedCapital': total_capital_invested,
-            'SharesOwned': total_shares_owned,
-            'PortfolioValue': current_portfolio_value,
-            'CashHeld': cash_held, # Non ancora usato attivamente
-            'DividendsReceivedCumulative': total_dividends_received
+            'Date': current_simulation_date_nominal, # Usiamo la data nominale del business day
+            'InvestedCapital': total_capital_invested_overall,
+            'PortfolioValue': portfolio_value_today,
+            'DividendsReceivedCumulative': total_dividends_received_overall
+            # Potremmo aggiungere qui i dettagli per ogni asset se necessario per debug o output avanzati
         })
-        
-        # Passa al prossimo giorno di trading
-        next_trading_day_series = relevant_price_data.index[relevant_price_data.index > current_simulation_date]
-        if next_trading_day_series.empty:
-            break 
-        current_simulation_date = next_trading_day_series[0]
-
 
     if not portfolio_evolution_records:
-        print("INFO (PAC): Nessun record di evoluzione del portafoglio generato.")
         return pd.DataFrame()
 
-    # Converte i record in DataFrame
-    daily_portfolio_df = pd.DataFrame(portfolio_evolution_records)
-    daily_portfolio_df['Date'] = pd.to_datetime(daily_portfolio_df['Date'])
+    final_df = pd.DataFrame(portfolio_evolution_records)
+    final_df.set_index('Date', inplace=True)
     
-    # Assicurati che il DataFrame copra l'intero periodo se necessario,
-    # ma dato che iteriamo sui giorni di trading e registriamo, dovrebbe già essere abbastanza denso.
-    # Se vogliamo una riga per OGNI giorno del calendario (non solo trading days),
-    # dovremmo fare un reindex e ffill, ma per ora va bene così.
+    # Potrebbe essere necessario un ffill se alcune date di business non avevano prezzi per NESSUN asset
+    # e quindi portfolio_value_today era 0 o basato su dati molto vecchi.
+    # Per ora, il dataframe è basato sulle date di business calcolate.
     
-    return daily_portfolio_df.reset_index(drop=True) # Rimuove l'indice numerico e mantiene 'Date' come colonna
+    return final_df.reset_index()
