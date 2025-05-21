@@ -1,4 +1,7 @@
 # --- Contenuto di utils/pac_engine.py (CON CORREZIONE PER FUTUREWARNING) ---
+import pandas as pd
+from datetime import datetime, timedelta # datetime e timedelta sono già usati, ma assicurati che ci siano
+from dateutil.relativedelta import relativedelta # Già presente, ma per contesto
 def run_basic_pac_simulation(
     price_data: pd.DataFrame,
     monthly_investment: float,
