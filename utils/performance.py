@@ -287,6 +287,123 @@ def calculate_annual_returns(portfolio_values_series: pd.Series) -> pd.Series:
 
     annual_returns = annual_values.pct_change().dropna()
     return annual_returns * 100 # In percentuale
+
+# simulatore_pac/utils/performance.py
+# ... (tutte le importazioni e le funzioni esistenti rimangono invariate) ...
+
+# --- NUOVE FUNZIONI PER ROLLING METRICS ---
+
+def calculate_rolling_volatility(
+    daily_returns: pd.Series, 
+    window_days: int, 
+    trading_days_per_year: int = 252
+) -> pd.Series:
+    """
+    Calcola la volatilità annualizzata mobile.
+    window_days: la dimensione della finestra in giorni di trading.
+    """
+    if daily_returns.empty or len(daily_returns) < window_days:
+        return pd.Series(dtype=float, name="Rolling Volatility")
+    
+    rolling_vol = daily_returns.rolling(window=window_days).std() * np.sqrt(trading_days_per_year)
+    return rolling_vol.dropna() * 100 # In percentuale
+
+def _calculate_sharpe_for_window(
+    window_returns: pd.Series, 
+    risk_free_rate_annual: float, 
+    trading_days_per_year: int
+) -> float:
+    """Funzione helper per calcolare Sharpe su una singola finestra."""
+    if window_returns.empty or len(window_returns) < 2: # Richiede almeno 2 punti per std
+        return np.nan
+    
+    daily_risk_free_rate = (1 + risk_free_rate_annual)**(1/trading_days_per_year) - 1
+    excess_returns = window_returns - daily_risk_free_rate
+    mean_excess_return = excess_returns.mean()
+    std_dev_excess_return = excess_returns.std()
+    
+    if std_dev_excess_return == 0 or pd.isna(std_dev_excess_return):
+        return np.nan if mean_excess_return == 0 else (np.inf if mean_excess_return > 0 else -np.inf)
+        
+    sharpe_ratio_window_daily = mean_excess_return / std_dev_excess_return
+    # Annualizza lo Sharpe Ratio della finestra
+    # Dato che stiamo già lavorando su una finestra, l'annualizzazione avviene moltiplicando per sqrt(trading_days_per_year)
+    # Tuttavia, se la media e std sono già "per finestra", alcuni annualizzano solo lo std per portarlo a scala annuale
+    # o la media. La formula più comune è (Mean(Ret_excess_daily) / Std(Ret_excess_daily)) * sqrt(trading_days_per_year)
+    # In questo caso, stiamo calcolando lo Sharpe per la finestra e poi lo annualizziamo.
+    # Se la finestra è di un anno, lo Sharpe è già annualizzato. Se è meno, va scalato.
+    # Se la finestra è `window_days`, i rendimenti sono `window_days` rendimenti giornalieri.
+    # Lo Sharpe giornaliero calcolato sulla finestra viene poi annualizzato.
+    sharpe_ratio_window_annualized = sharpe_ratio_window_daily * np.sqrt(trading_days_per_year)
+    return sharpe_ratio_window_annualized
+
+def calculate_rolling_sharpe_ratio(
+    daily_returns: pd.Series, 
+    window_days: int, 
+    risk_free_rate_annual: float = 0.0, 
+    trading_days_per_year: int = 252
+) -> pd.Series:
+    """
+    Calcola lo Sharpe Ratio annualizzato mobile.
+    """
+    if daily_returns.empty or len(daily_returns) < window_days:
+        return pd.Series(dtype=float, name="Rolling Sharpe Ratio")
+    
+    rolling_sharpe = daily_returns.rolling(window=window_days).apply(
+        lambda x: _calculate_sharpe_for_window(x, risk_free_rate_annual, trading_days_per_year),
+        raw=False # raw=False perché la nostra funzione si aspetta una Serie Pandas
+    )
+    return rolling_sharpe.dropna()
+
+def _calculate_cagr_for_window(
+    window_portfolio_values: pd.Series, 
+    window_days_actual: int, # Lunghezza effettiva della finestra (può essere < window_days all'inizio)
+    trading_days_per_year: int
+) -> float:
+    """Funzione helper per calcolare CAGR su una singola finestra di valori di portafoglio."""
+    if window_portfolio_values.empty or len(window_portfolio_values) < 2 or window_days_actual < 2:
+        return np.nan
+    
+    start_value = window_portfolio_values.iloc[0]
+    end_value = window_portfolio_values.iloc[-1]
+    
+    if start_value <= 0 or pd.isna(start_value) or pd.isna(end_value):
+        return np.nan
+    if end_value < 0 and start_value > 0: # Perdita totale o più
+         return np.nan # CAGR per valori finali negativi è complesso
+    if end_value == 0 and start_value > 0:
+        return -100.0
+
+    num_years_in_window = window_days_actual / trading_days_per_year
+    if num_years_in_window <= 0:
+        return np.nan
+
+    try:
+        cagr = ((end_value / start_value) ** (1 / num_years_in_window)) - 1
+    except (ValueError, OverflowError, ZeroDivisionError):
+        return np.nan
+    return cagr * 100 # In percentuale
+
+def calculate_rolling_cagr(
+    portfolio_values: pd.Series, # Richiede la serie dei valori del portafoglio, non i rendimenti
+    window_days: int, 
+    trading_days_per_year: int = 252
+) -> pd.Series:
+    """
+    Calcola il CAGR mobile.
+    portfolio_values: Serie Pandas con i valori del portafoglio e DatetimeIndex.
+    """
+    if not isinstance(portfolio_values, pd.Series) or portfolio_values.empty or \
+       not isinstance(portfolio_values.index, pd.DatetimeIndex) or len(portfolio_values) < window_days :
+        return pd.Series(dtype=float, name="Rolling CAGR")
+
+    # raw=False perché _calculate_cagr_for_window si aspetta una Serie Pandas
+    # min_periods=window_days assicura che la funzione venga applicata solo a finestre complete
+    rolling_cagr = portfolio_values.rolling(window=window_days, min_periods=window_days).apply( 
+        lambda x: _calculate_cagr_for_window(x, window_days, trading_days_per_year),
+        raw=False 
+    )
+    return rolling_cagr.dropna()
 # Commentato per ora, dato che empyrical dava problemi di installazione
 # def calculate_sortino_ratio_empyrical(daily_returns: pd.Series, required_return_annual: float = 0.0) -> float:
 #     # ... (codice come definito precedentemente) ...
