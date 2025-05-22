@@ -135,6 +135,32 @@ def calculate_wap_for_assets(final_asset_details: dict) -> dict:
         elif s > 1e-6 and c <= 1e-6: waps[ticker] = 0.0 
         else: waps[ticker] = np.nan
     return waps
+# In utils/performance.py
+# ... (importazioni e funzioni esistenti) ...
 
+def calculate_tracking_error(portfolio_daily_returns: pd.Series, 
+                             benchmark_daily_returns: pd.Series, 
+                             trading_days_per_year: int = 252) -> float:
+    """
+    Calcola il Tracking Error annualizzato tra i rendimenti di un portafoglio e un benchmark.
+    Assicura che le serie di rendimenti siano allineate per data.
+    """
+    if portfolio_daily_returns.empty or benchmark_daily_returns.empty:
+        return np.nan
+    
+    # Allinea le serie di rendimenti sull'indice comune (date)
+    # Questo è fondamentale per un calcolo corretto
+    aligned_df = pd.DataFrame({
+        'portfolio': portfolio_daily_returns,
+        'benchmark': benchmark_daily_returns
+    }).dropna() # Rimuovi date dove uno dei due non ha rendimenti
+
+    if len(aligned_df) < 2: # Necessari almeno due punti per la deviazione standard
+        return np.nan
+
+    difference_in_returns = aligned_df['portfolio'] - aligned_df['benchmark']
+    tracking_error_annualized = difference_in_returns.std() * np.sqrt(trading_days_per_year)
+    
+    return tracking_error_annualized * 100 # In percentuale
 # Le funzioni per Rolling Metrics e calculate_annual_returns sono state rimosse
 # per questa versione semplificata.
