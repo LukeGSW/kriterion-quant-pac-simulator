@@ -1,34 +1,26 @@
 # utils/report_generator.py
 from io import BytesIO
 from reportlab.lib.pagesizes import A4, landscape
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, PageBreak
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle, PageBreak, KeepInFrame
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle # Aggiunto ParagraphStyle
 from reportlab.lib.units import inch, cm
 from reportlab.lib import colors
 import pandas as pd
 from datetime import datetime
-# import matplotlib.pyplot as plt # Only needed if creating figs here, not if passed
+# from reportlab.graphics. medziagomis import FigureCanvasAgg # Rimosso come discusso
 
-# RIMUOVI QUESTA IMPORTAZIONE ERRATA:
-# from reportlab.graphics.medziagomis import FigureCanvasAgg 
-
-def fig_to_image(fig, width=7*inch, height=3.5*inch): # Aggiunte larghezza e altezza di default
-    """Converte una figura Matplotlib in un oggetto Image di ReportLab."""
+def fig_to_image(fig, width=7*inch, height=3.5*inch):
     if fig is None:
         return None
     img_buffer = BytesIO()
     try:
-        fig.savefig(img_buffer, format='PNG', dpi=150, bbox_inches='tight') # Aggiunto bbox_inches
+        fig.savefig(img_buffer, format='PNG', dpi=150, bbox_inches='tight')
         img_buffer.seek(0)
-        # NON chiudere la figura qui (plt.close(fig)), 
-        # potrebbe essere riutilizzata o chiusa in main.py se necessario.
         return Image(img_buffer, width=width, height=height) 
     except Exception as e:
         print(f"Errore durante la conversione della figura Matplotlib in immagine: {e}")
         return None
-    finally:
-        if 'plt' in locals() or 'plt' in globals(): # Chiudi solo se plt è stato importato e usato qui
-            plt.close(fig) # È buona pratica chiudere per liberare memoria
+    # Non chiudere la figura qui, verrà chiusa in main.py
 
 def generate_pac_report_pdf(
     tickers_list,
@@ -58,7 +50,7 @@ def generate_pac_report_pdf(
     story.append(Paragraph(f"Report generato il: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", time_style))
     story.append(Spacer(1, 0.2*inch))
 
-    # --- PARAMETRI SIMULAZIONE ---
+    # --- PARAMETRI SIMULAZIONE (come prima) ---
     story.append(Paragraph("Parametri della Simulazione:", styles['h2']))
     param_text = f"<b>Asset e Allocazioni Target:</b><br/>"
     for i, ticker in enumerate(tickers_list): param_text += f"- {ticker}: {allocations_float_list_raw[i]:.1f}%<br/>"
@@ -72,33 +64,30 @@ def generate_pac_report_pdf(
     story.append(Paragraph(param_text, styles['Normal']))
     story.append(Spacer(1, 0.2*inch))
 
-    # --- TABELLA METRICHE DI PERFORMANCE ---
+    # --- TABELLA METRICHE DI PERFORMANCE (come prima) ---
     if metrics_df is not None and not metrics_df.empty:
         story.append(Paragraph("Metriche di Performance Riepilogative:", styles['h2']))
-        header = ["Metrica"] + [col for col in metrics_df.columns if col != "Metrica"]
+        # ... (codice per metrics_table_pdf come prima) ...
+        header = ["Metrica"] + [col for col in metrics_df.columns if col != "Metrica"] 
         metrics_data_for_pdf = [header]
-        # metrics_df ora ha "Metrica" come colonna normale perché abbiamo usato reset_index() in main.py
         for index, row in metrics_df.iterrows(): 
-            metrics_data_for_pdf.append(row.tolist()) # row[0] è Metrica, row[1] PAC, ecc.
-
+            metrics_data_for_pdf.append(row.tolist()) 
         num_value_cols = len(header) - 1
-        col_widths = [2.5*inch] + [1.5*inch] * num_value_cols if num_value_cols > 0 else [sum([2.5, 1.5*num_value_cols])*inch] # Adatta larghezza
-        
+        col_widths = [2.5*inch] + [1.5*inch] * num_value_cols if num_value_cols > 0 else [sum([2.5, 1.5*num_value_cols])*inch] 
         metrics_table_pdf = Table(metrics_data_for_pdf, colWidths=col_widths)
         metrics_table_pdf.setStyle(TableStyle([
             ('BACKGROUND', (0,0), (-1,0), colors.darkblue), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
             ('ALIGN', (0,0), (-1,-1), 'CENTER'), ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'), ('FONTSIZE', (0,0), (-1,0), 9), # Ridotto font header
+            ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'), ('FONTSIZE', (0,0), (-1,0), 9),
             ('BOTTOMPADDING', (0,0), (-1,0), 6), ('TOPPADDING', (0,0), (-1,0), 6),
-            ('BACKGROUND', (0,1), (-1,-1), colors.aliceblue), ('FONTSIZE', (0,1), (-1,-1), 8), # Ridotto font corpo
+            ('BACKGROUND', (0,1), (-1,-1), colors.aliceblue), ('FONTSIZE', (0,1), (-1,-1), 8),
             ('GRID', (0,0), (-1,-1), 1, colors.black),
-            ('LEFTPADDING', (0,0), (-1,-1), 2), ('RIGHTPADDING', (0,0), (-1,-1), 2)
-        ]))
+            ('LEFTPADDING', (0,0), (-1,-1), 2), ('RIGHTPADDING', (0,0), (-1,-1), 2) ]))
         story.append(metrics_table_pdf)
         story.append(Spacer(1, 0.2*inch))
 
     # --- GRAFICO EQUITY LINE ---
-    img_equity = fig_to_image(equity_line_fig, width=7*inch, height=3.5*inch) # Usa dimensioni di default
+    img_equity = fig_to_image(equity_line_fig, width=7*inch, height=3.5*inch)
     if img_equity:
         story.append(Paragraph("Andamento Comparativo del Portafoglio:", styles['h2']))
         story.append(img_equity)
@@ -111,7 +100,7 @@ def generate_pac_report_pdf(
         story.append(img_drawdown)
         story.append(Spacer(1, 0.1*inch))
     
-    if img_equity or img_drawdown : story.append(PageBreak()) # Interruzione di pagina
+    if img_equity or img_drawdown : story.append(PageBreak())
 
     # --- GRAFICO STACKED AREA ---
     img_stacked = fig_to_image(stacked_area_fig, width=7*inch, height=3.5*inch)
@@ -123,12 +112,11 @@ def generate_pac_report_pdf(
     # --- TABELLA DETTAGLI FINALI PER ASSET PAC ---
     if asset_details_final_df is not None and not asset_details_final_df.empty:
         story.append(Paragraph("Dettagli Finali per Asset nel PAC:", styles['h2']))
-        # asset_details_final_df ora ha "Ticker" come colonna (da reset_index() in main.py)
+        # ... (codice per asset_table_pdf come prima) ...
         header_asset = asset_details_final_df.columns.tolist()
         asset_data_for_pdf = [header_asset]
         for index, row in asset_details_final_df.iterrows():
              asset_data_for_pdf.append(row.tolist())
-        
         asset_table_pdf = Table(asset_data_for_pdf, colWidths=[1.5*inch, 1.5*inch, 2*inch, 2*inch])
         asset_table_pdf.setStyle(TableStyle([
              ('BACKGROUND', (0,0), (-1,0), colors.darkslateblue), ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
@@ -136,10 +124,18 @@ def generate_pac_report_pdf(
             ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'), ('FONTSIZE', (0,0), (-1,0), 9),
             ('BOTTOMPADDING', (0,0), (-1,0), 6), ('TOPPADDING', (0,0), (-1,0), 6),
             ('BACKGROUND', (0,1), (-1,-1), colors.lightcyan), ('FONTSIZE', (0,1), (-1,-1), 8),
-            ('GRID', (0,0), (-1,-1), 1, colors.black)
-        ]))
+            ('GRID', (0,0), (-1,-1), 1, colors.black) ]))
         story.append(asset_table_pdf)
         story.append(Spacer(1, 0.2*inch))
+
+    # --- AGGIUNTA LINK KRITERION QUANT NEL PDF ---
+    story.append(Spacer(1, 0.5*inch)) # Un po' di spazio prima del link
+    link_style = styles['Normal']
+    link_style.alignment = 1 # Center
+    # ReportLab interpreta i tag <a> per i link nei PDF
+    kriterion_link_text = 'Visita il nostro sito: <a href="https://kriterionquant.com/" color="blue"><u>Kriterion Quant</u></a>'
+    story.append(Paragraph(kriterion_link_text, link_style))
+    story.append(Paragraph("<i>Progetto Didattico Kriterion Quant</i>", link_style)) # Aggiunto anche il nome del progetto
 
     try:
         doc.build(story)
@@ -153,5 +149,4 @@ def generate_pac_report_pdf(
         pdf_value = buffer.getvalue()
         
     buffer.close()
-    # È meglio chiudere le figure Matplotlib in main.py dopo aver chiamato generate_pac_report_pdf
     return pdf_value
