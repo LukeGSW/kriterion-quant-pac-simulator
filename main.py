@@ -255,69 +255,105 @@ if run_simulation_button:
         if table_data_wap: st.table(pd.DataFrame(table_data_wap).set_index("Ticker"))
     
     # --- SEZIONE DOWNLOAD DATI ---
-    st.subheader("Download Dati Simulazione (CSV)")
-    if not df_for_table.empty:
-        csv_metrics = df_for_table.reset_index().to_csv(index=False).encode('utf-8')
-        st.download_button(label="Scarica Tabella Metriche (CSV)", data=csv_metrics, file_name="metriche_simulazione.csv", mime='text/csv', key='dl_metrics')
-    if not pac_total_df.empty:
-        csv_pac_total = pac_total_df.to_csv(index=False).encode('utf-8')
-        st.download_button(label="Scarica Evoluzione PAC (CSV)", data=csv_pac_total, file_name="evoluzione_pac.csv", mime='text/csv', key='dl_pac_total')
-    if not lump_sum_df.empty:
-        csv_lump_sum = lump_sum_df.to_csv(index=False).encode('utf-8')
-        st.download_button(label="Scarica Evoluzione Lump Sum (CSV)", data=csv_lump_sum, file_name="evoluzione_lumpsum.csv", mime='text/csv', key='dl_lumpsum')
-    if asset_details_history_df is not None and not asset_details_history_df.empty:
-        csv_asset_details = asset_details_history_df.to_csv(index=False).encode('utf-8')
-        st.download_button(label="Scarica Dettagli per Asset PAC (CSV)", data=csv_asset_details, file_name="dettagli_asset_pac.csv", mime='text/csv', key='dl_asset_details')
-                # --- PULSANTE DOWNLOAD PDF ---
-            if not pac_total_df.empty and not df_for_table.empty: # Assicurati che ci siano dati base
-                # Prepara i parametri per il report PDF
-                pac_params_for_pdf = {
-                    "start_date": pac_start_date_contributions_ui.strftime('%Y-%m-%d'),
-                    "duration_months": duration_months_contributions_input,
-                    "monthly_investment": f"{monthly_investment_input:,.2f}", # Formattato
-                    "reinvest_div": reinvest_dividends_input,
-                    "rebalance_active": rebalance_active_input,
-                    "rebalance_freq": rebalance_frequency_input_str if rebalance_active_input else "N/A"
-                }
-                
-                # Prepara il DataFrame dei dettagli finali per asset PAC
-                asset_details_final_for_pdf_table = pd.DataFrame()
-                if asset_details_history_df is not None and not asset_details_history_df.empty:
-                    final_asset_details_map_pdf = get_final_asset_details(asset_details_history_df, tickers_list)
-                    wap_map_pdf = calculate_wap_for_assets(final_asset_details_map_pdf)
-                    table_data_wap_pdf = []
-                    for ticker_wap_pdf in tickers_list:
-                        asset_info_pdf = final_asset_details_map_pdf.get(ticker_wap_pdf, {'shares': 0.0, 'capital_invested': 0.0})
-                        table_data_wap_pdf.append({
-                            # "Ticker": ticker_wap_pdf, # L'indice sarà il Ticker
-                            "Quote Finali": f"{asset_info_pdf['shares']:.4f}",
-                            "Cap.Inv.(Asset)": f"{asset_info_pdf['capital_invested']:,.2f}", # Abbreviato per tabella PDF
-                            "WAP": f"{wap_map.get(ticker_wap_pdf, np.nan):,.2f}" if pd.notna(wap_map.get(ticker_wap_pdf, np.nan)) else "N/A"
-                        })
-                    if table_data_wap_pdf:
-                         asset_details_final_for_pdf_table = pd.DataFrame(table_data_wap_pdf, index=tickers_list)
-                         asset_details_final_for_pdf_table.index.name = "Ticker"
+    # In main.py, all'interno del blocco "if run_simulation_button:" 
+# e dopo la visualizzazione delle tabelle e grafici esistenti.
+
+            # --- SEZIONE DOWNLOAD DATI (CSV come prima) ---
+            st.subheader("Download Dati Simulazione (CSV)")
+            # ... (codice per i pulsanti di download CSV come prima, assicurati che funzionino) ...
+            if not df_for_table.empty:
+                csv_metrics = df_for_table.reset_index().to_csv(index=False).encode('utf-8')
+                st.download_button(label="Scarica Tabella Metriche (CSV)", data=csv_metrics, file_name="metriche_simulazione.csv", mime='text/csv', key='dl_metrics_v7')
+            if not pac_total_df.empty:
+                csv_pac_total = pac_total_df.to_csv(index=False).encode('utf-8')
+                st.download_button(label="Scarica Evoluzione PAC (CSV)", data=csv_pac_total, file_name="evoluzione_pac.csv", mime='text/csv', key='dl_pac_total_v7')
+            if not lump_sum_df.empty:
+                csv_lump_sum = lump_sum_df.to_csv(index=False).encode('utf-8')
+                st.download_button(label="Scarica Evoluzione Lump Sum (CSV)", data=csv_lump_sum, file_name="evoluzione_lumpsum.csv", mime='text/csv', key='dl_lumpsum_v7')
+            if asset_details_history_df is not None and not asset_details_history_df.empty:
+                csv_asset_details = asset_details_history_df.to_csv(index=False).encode('utf-8')
+                st.download_button(label="Scarica Dettagli per Asset PAC (CSV)", data=csv_asset_details, file_name="dettagli_asset_pac.csv", mime='text/csv', key='dl_asset_details_v7')
 
 
-                # Per ora passiamo None per le immagini dei grafici
-                pdf_bytes = generate_pac_report_pdf(
-                    tickers_list=tickers_list,
-                    allocations_float_list_raw=allocations_float_list_raw, # Passa le allocazioni come lista di float
-                    pac_params=pac_params_for_pdf,
-                    metrics_df=df_for_table.reset_index(), # Passa con "Metrica" come colonna
-                    pac_total_df=pac_total_df,
-                    lump_sum_df=lump_sum_df,
-                    asset_details_final_df=asset_details_final_for_pdf_table.reset_index() # Passa con "Ticker" come colonna
-                )
-                
-                st.download_button(
-                    label="Scarica Report Completo (PDF)",
-                    data=pdf_bytes,
-                    file_name=f"report_pac_simulazione_{'_'.join(tickers_list)}.pdf",
-                    mime='application/pdf',
-                    key='download_report_pdf'
+            # --- NUOVO: DEBUG E PULSANTE DOWNLOAD PDF ---
+            st.subheader("Download Report Completo (PDF)")
+            st.write("--- DEBUG (PDF): Inizio sezione PDF ---")
 
-else: 
-    st.info("Inserisci parametri e avvia simulazione.")
+            # Stampa lo stato delle variabili necessarie per la condizione if
+            st.write(f"--- DEBUG (PDF): `pac_total_df` è vuoto? {pac_total_df.empty} ---")
+            if not pac_total_df.empty:
+                 st.write(f"--- DEBUG (PDF): `pac_total_df` colonne: {pac_total_df.columns.tolist()} ---")
+            
+            # df_for_table è la tabella delle metriche, dovrebbe esistere se siamo arrivati qui
+            # Viene creata sopra il grafico Equity
+            df_for_table_exists_and_not_empty = 'df_for_table' in locals() and not df_for_table.empty
+            st.write(f"--- DEBUG (PDF): `df_for_table` esiste e non è vuota? {df_for_table_exists_and_not_empty} ---")
+            if df_for_table_exists_and_not_empty:
+                 st.write(f"--- DEBUG (PDF): `df_for_table` (metriche) colonne: {df_for_table.reset_index().columns.tolist()} ---")
+
+
+            if not pac_total_df.empty and df_for_table_exists_and_not_empty:
+                st.write("--- DEBUG (PDF): Condizione per generare PDF soddisfatta. Tentativo... ---")
+                try:
+                    pac_params_for_pdf = {
+                        "start_date": pac_start_date_contributions_ui.strftime('%Y-%m-%d'),
+                        "duration_months": duration_months_contributions_input,
+                        "monthly_investment": f"{monthly_investment_input:,.2f}",
+                        "reinvest_div": reinvest_dividends_input,
+                        "rebalance_active": rebalance_active_input,
+                        "rebalance_freq": rebalance_frequency_input_str if rebalance_active_input else "N/A"
+                    }
+                    
+                    asset_details_final_for_pdf_table = pd.DataFrame()
+                    if asset_details_history_df is not None and not asset_details_history_df.empty:
+                        final_asset_details_map_pdf = get_final_asset_details(asset_details_history_df, tickers_list)
+                        wap_map_pdf = calculate_wap_for_assets(final_asset_details_map_pdf)
+                        table_data_wap_pdf = []
+                        for ticker_wap_pdf in tickers_list:
+                            asset_info_pdf = final_asset_details_map_pdf.get(ticker_wap_pdf, {'shares': 0.0, 'capital_invested': 0.0})
+                            table_data_wap_pdf.append({
+                                "Ticker": ticker_wap_pdf, # Aggiungiamo Ticker come colonna per reset_index dopo
+                                "Quote Finali": f"{asset_info_pdf['shares']:.4f}",
+                                "Cap.Inv.(Asset)": f"{asset_info_pdf['capital_invested']:,.2f}",
+                                "WAP": f"{wap_map_pdf.get(ticker_wap_pdf, np.nan):,.2f}" if pd.notna(wap_map_pdf.get(ticker_wap_pdf, np.nan)) else "N/A"
+                            })
+                        if table_data_wap_pdf:
+                             asset_details_final_for_pdf_table = pd.DataFrame(table_data_wap_pdf) # Non impostare l'indice qui
+                    
+                    st.write("--- DEBUG (PDF): Dati per `generate_pac_report_pdf` preparati. ---")
+                    st.write(f"--- DEBUG (PDF): `df_for_table` (metriche) passato a PDF ha {len(df_for_table)} righe. ---")
+                    st.write(f"--- DEBUG (PDF): `asset_details_final_for_pdf_table` passato a PDF ha {len(asset_details_final_for_pdf_table)} righe. ---")
+
+
+                    pdf_bytes = generate_pac_report_pdf(
+                        tickers_list=tickers_list,
+                        allocations_float_list_raw=allocations_float_list_raw,
+                        pac_params=pac_params_for_pdf,
+                        metrics_df=df_for_table.reset_index(), # Passa con "Metrica" come colonna
+                        pac_total_df=pac_total_df,
+                        lump_sum_df=lump_sum_df,
+                        asset_details_final_df=asset_details_final_for_pdf_table # Passa il DataFrame
+                    )
+                    st.write("--- DEBUG (PDF): `generate_pac_report_pdf` chiamato con successo. ---")
+                    
+                    st.download_button(
+                        label="Scarica Report Completo (PDF)",
+                        data=pdf_bytes,
+                        file_name=f"report_pac_simulazione_{'_'.join(tickers_list)}.pdf",
+                        mime='application/pdf',
+                        key='download_report_pdf_v7' # Chiave aggiornata
+                    )
+                    st.write("--- DEBUG (PDF): Pulsante Download PDF DOVREBBE ESSERE VISUALIZZATO. ---")
+
+                except Exception as e_pdf:
+                    st.error(f"Errore durante la generazione o la preparazione del PDF: {e_pdf}")
+                    st.write("--- DEBUG (PDF): Eccezione durante la generazione PDF. ---")
+                    import traceback
+                    st.text(traceback.format_exc())
+            else:
+                st.warning("Dati PAC o tabella metriche non disponibili, impossibile generare il pulsante di download PDF.")
+                st.write(f"--- DEBUG (PDF): Condizione `if not pac_total_df.empty and df_for_table_exists_and_not_empty` NON soddisfatta. ---")
+
+            # --- FINE SEZIONE DOWNLOAD DATI ---
 
 st.sidebar.markdown("---"); st.sidebar.markdown("Kriterion Quant")
