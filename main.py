@@ -2,7 +2,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from utils.report_generator import generate_pac_report_pdf # NUOVA
 from datetime import datetime, date, timedelta
 
 # Importazioni dai moduli utils
@@ -10,6 +9,7 @@ try:
     from utils.data_loader import load_historical_data_yf
     from utils.pac_engine import run_pac_simulation
     from utils.benchmark_engine import run_lump_sum_simulation
+    from utils.report_generator import generate_pac_report_pdf # Per il PDF
     from utils.performance import (
         get_total_capital_invested, get_final_portfolio_value,
         calculate_total_return_percentage, calculate_cagr, get_duration_years,
@@ -17,7 +17,7 @@ try:
         calculate_sharpe_ratio, calculate_max_drawdown, calculate_drawdown_series,
         generate_cash_flows_for_xirr, calculate_xirr_metric,
         get_final_asset_details, calculate_wap_for_assets,
-        calculate_tracking_error # Per il Tracking Error
+        calculate_tracking_error 
     )
     IMPORT_SUCCESS = True
 except ImportError as import_err:
@@ -25,7 +25,7 @@ except ImportError as import_err:
     IMPORT_ERROR_MESSAGE = str(import_err)
 
 st.set_page_config(page_title="Simulatore PAC Avanzato", layout="wide")
-st.title("📘 Simulatore PAC con Analisi Avanzate")
+st.title("📘 Simulatore PAC con Download Report")
 st.caption("Progetto Kriterion Quant")
 
 if not IMPORT_SUCCESS:
@@ -35,23 +35,23 @@ if not IMPORT_SUCCESS:
 # --- Sidebar per Input Utente ---
 st.sidebar.header("Parametri Simulazione")
 st.sidebar.subheader("Asset e Allocazioni")
-tickers_input_str = st.sidebar.text_input("Tickers (virgola sep., es. AAPL,MSFT,GOOG)", "AAPL,GOOG,MSFT", key="ui_tickers_v6")
-allocations_input_str = st.sidebar.text_input("Allocazioni % (virgola sep., es. 60,20,20)", "60,20,20", key="ui_allocations_v6")
+tickers_input_str = st.sidebar.text_input("Tickers (virgola sep., es. AAPL,MSFT,GOOG)", "AAPL,GOOG,MSFT", key="ui_tickers_v7")
+allocations_input_str = st.sidebar.text_input("Allocazioni % (virgola sep., es. 60,20,20)", "60,20,20", key="ui_allocations_v7")
 st.sidebar.subheader("Parametri PAC")
-monthly_investment_input = st.sidebar.number_input("Importo Mensile (€/$)", 10.0, value=200.0, step=10.0, key="ui_monthly_inv_v6")
+monthly_investment_input = st.sidebar.number_input("Importo Mensile (€/$)", 10.0, value=200.0, step=10.0, key="ui_monthly_inv_v7")
 default_start_date_pac_sidebar = date(2020, 1, 1)
-pac_start_date_contributions_ui = st.sidebar.date_input("Data Inizio Contributi PAC", default_start_date_pac_sidebar, key="ui_pac_start_date_v6")
+pac_start_date_contributions_ui = st.sidebar.date_input("Data Inizio Contributi PAC", default_start_date_pac_sidebar, key="ui_pac_start_date_v7")
 default_duration_months = 36
-duration_months_contributions_input = st.sidebar.number_input("Durata Contributi PAC (mesi)", 6, value=default_duration_months, step=1, key="ui_duration_months_v6")
-reinvest_dividends_input = st.sidebar.checkbox("Reinvesti Dividendi (per PAC e LS)?", True, key="ui_reinvest_div_v6")
+duration_months_contributions_input = st.sidebar.number_input("Durata Contributi PAC (mesi)", 6, value=default_duration_months, step=1, key="ui_duration_months_v7")
+reinvest_dividends_input = st.sidebar.checkbox("Reinvesti Dividendi (per PAC e LS)?", True, key="ui_reinvest_div_v7")
 st.sidebar.subheader("Ribilanciamento Periodico (Solo per PAC)")
-rebalance_active_input = st.sidebar.checkbox("Attiva Ribilanciamento (per PAC)?", False, key="ui_rebalance_active_v6")
+rebalance_active_input = st.sidebar.checkbox("Attiva Ribilanciamento (per PAC)?", False, key="ui_rebalance_active_v7")
 rebalance_frequency_input_str = None
 if rebalance_active_input:
-    rebalance_frequency_input_str = st.sidebar.selectbox("Frequenza", ["Annuale", "Semestrale", "Trimestrale"], 0, key="ui_rebalance_freq_v6")
+    rebalance_frequency_input_str = st.sidebar.selectbox("Frequenza", ["Annuale", "Semestrale", "Trimestrale"], 0, key="ui_rebalance_freq_v7")
 st.sidebar.subheader("Parametri Metriche")
-risk_free_rate_input = st.sidebar.number_input("Tasso Risk-Free Annuale (%) per Sharpe", 0.0, value=1.0, step=0.1, format="%.2f", key="ui_rf_rate_v6")
-run_simulation_button = st.sidebar.button("🚀 Avvia Simulazioni", key="ui_run_button_v6")
+risk_free_rate_input = st.sidebar.number_input("Tasso Risk-Free Annuale (%) per Sharpe", 0.0, value=1.0, step=0.1, format="%.2f", key="ui_rf_rate_v7")
+run_simulation_button = st.sidebar.button("🚀 Avvia Simulazioni", key="ui_run_button_v7")
 
 # --- MINI GUIDA ---
 st.sidebar.markdown("---") 
@@ -171,30 +171,28 @@ if run_simulation_button:
     
     desired_ordered_metrics = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", 
                                "Volatilità Ann.", "Sharpe", "Max Drawdown", "Tracking Error (vs LS)"]
-    df_for_table = pd.DataFrame(index=desired_ordered_metrics) # Crea con tutte le possibili metriche in ordine
+    df_for_table = pd.DataFrame(index=desired_ordered_metrics)
     df_for_table["PAC"] = df_for_table.index.map(metrics_pac_display).fillna("N/A")
 
     if not lump_sum_df.empty:
         metrics_ls_display = calculate_and_format_metrics(lump_sum_df, "Lump Sum", total_invested_override=get_total_capital_invested(pac_total_df), is_pac=False)
         df_for_table["Lump Sum"] = df_for_table.index.map(metrics_ls_display).fillna("N/A")
     
-    # Rimuovi la riga Volatilità Ann. se la colonna PAC non è N/A (cioè, è stata erroneamente popolata)
-    # O meglio, assicurati che per PAC sia N/A
-    if "Volatilità Ann." in df_for_table.index:
-        df_for_table.loc["Volatilità Ann.", "PAC"] = "N/A"
-    # Rimuovi Tracking Error se la colonna Lump Sum non esiste
-    if "Lump Sum" not in df_for_table.columns and "Tracking Error (vs LS)" in df_for_table.index:
-        df_for_table.drop("Tracking Error (vs LS)", inplace=True)
-    
-    st.subheader("Metriche di Performance Riepilogative")
-    st.table(df_for_table.dropna(how='all', subset=['PAC', 'Lump Sum'] if 'Lump Sum' in df_for_table else ['PAC']))
+    if "Volatilità Ann." in df_for_table.index: df_for_table.loc["Volatilità Ann.", "PAC"] = "N/A"
+    if "Lump Sum" not in df_for_table.columns and "Tracking Error (vs LS)" in df_for_table.index: df_for_table.drop("Tracking Error (vs LS)", inplace=True)
+    elif "Tracking Error (vs LS)" in df_for_table.index and df_for_table.loc["Tracking Error (vs LS)", "PAC"] == "N/A":
+         if "Lump Sum" not in df_for_table.columns: df_for_table.drop("Tracking Error (vs LS)", inplace=True)
 
+    final_ordered_index = [label for label in desired_ordered_metrics if label in df_for_table.index]
+    df_for_table = df_for_table.reindex(final_ordered_index).fillna("N/A")
+
+    st.subheader("Metriche di Performance Riepilogative")
+    if not df_for_table.empty: st.table(df_for_table)
 
     # --- GRAFICO EQUITY LINE ESTESO ---
     st.subheader("Andamento Comparativo del Portafoglio")
     if not base_chart_date_index.empty:
         equity_plot_df = pd.DataFrame(index=base_chart_date_index)
-        # ... (Logica join e ffill per equity_plot_df come prima) ...
         if not pac_total_df.empty: pac_plot = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date'])); equity_plot_df = equity_plot_df.join(pac_plot[['PortfolioValue', 'InvestedCapital']]); equity_plot_df.rename(columns={'PortfolioValue': 'PAC Valore Portafoglio', 'InvestedCapital': 'PAC Capitale Investito'}, inplace=True)
         if not lump_sum_df.empty: ls_plot = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date'])); equity_plot_df = equity_plot_df.join(ls_plot[['PortfolioValue']]); equity_plot_df.rename(columns={'PortfolioValue': 'Lump Sum Valore Portafoglio'}, inplace=True)
         cash_val = get_total_capital_invested(pac_total_df) if not pac_total_df.empty else 0
@@ -213,25 +211,26 @@ if run_simulation_button:
                     if pd.notna(last_known_cap_val): equity_plot_df.loc[equity_plot_df.index > actual_last_contrib_idx_date, 'PAC Capitale Investito'] = last_known_cap_val
         cols_to_plot = [c for c in equity_plot_df.columns if not equity_plot_df[c].isnull().all()]
         if cols_to_plot: st.line_chart(equity_plot_df[cols_to_plot])
+    else: st.warning("Indice base per grafici non creato.")
 
     # --- GRAFICO DRAWDOWN ESTESO ---
     st.subheader("Andamento del Drawdown nel Tempo")
     if not base_chart_date_index.empty:
         drawdown_plot_df = pd.DataFrame(index=base_chart_date_index)
-        # ... (Logica join e ffill per drawdown_plot_df come prima) ...
-        if not pac_total_df.empty: pac_pv_dd = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']; pac_dd_series = calculate_drawdown_series(pac_pv_dd);
-        if not pac_dd_series.empty: drawdown_plot_df['PAC Drawdown (%)'] = pac_dd_series
-        if not lump_sum_df.empty: ls_pv_dd = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']; ls_dd_series = calculate_drawdown_series(ls_pv_dd);
-        if not ls_dd_series.empty: drawdown_plot_df['Lump Sum Drawdown (%)'] = ls_dd_series
-        if not drawdown_plot_df.empty: # Aggiunto controllo prima di ffill
-            for col in drawdown_plot_df.columns: drawdown_plot_df[col] = drawdown_plot_df[col].ffill()
-            cols_to_plot_dd = [c for c in drawdown_plot_df.columns if not drawdown_plot_df[c].isnull().all()]
-            if cols_to_plot_dd: st.line_chart(drawdown_plot_df[cols_to_plot_dd])
+        if not pac_total_df.empty:
+            pac_val_series_dd = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
+            drawdown_plot_df['PAC Drawdown (%)'] = calculate_drawdown_series(pac_val_series_dd)
+        if not lump_sum_df.empty:
+            ls_val_series_dd = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']
+            drawdown_plot_df['Lump Sum Drawdown (%)'] = calculate_drawdown_series(ls_val_series_dd)
+        for col in drawdown_plot_df.columns: drawdown_plot_df[col] = drawdown_plot_df[col].ffill()
+        cols_to_plot_dd = [c for c in drawdown_plot_df.columns if not drawdown_plot_df[c].isnull().all()]
+        if cols_to_plot_dd: st.line_chart(drawdown_plot_df[cols_to_plot_dd])
+    else: st.warning("Indice base non creato, grafico drawdown saltato.")
 
     # --- STACKED AREA CHART ESTESO ---
     if asset_details_history_df is not None and not asset_details_history_df.empty and not base_chart_date_index.empty:
         st.subheader("Allocazione Dinamica Portafoglio PAC (Valore per Asset)")
-        # ... (Logica stacked area chart come prima) ...
         value_cols_stacked = [f'{t}_value' for t in tickers_list if f'{t}_value' in asset_details_history_df.columns]
         if value_cols_stacked:
             stacked_df_temp = asset_details_history_df.set_index(pd.to_datetime(asset_details_history_df['Date']))[value_cols_stacked]
@@ -241,120 +240,86 @@ if run_simulation_button:
                 stacked_df_plot[col] = stacked_df_plot[col].ffill().fillna(0)
             if not stacked_df_plot.empty and not stacked_df_plot.isnull().all().all():
                 st.area_chart(stacked_df_plot)
+        else: st.warning("Nessuna colonna `_value` per Stacked Area.")
+    else: st.warning("Dati per asset o indice base non disponibili per Stacked Area.")
 
     # --- TABELLA QUOTE/WAP ---
     if asset_details_history_df is not None and not asset_details_history_df.empty:
         st.subheader("Dettagli Finali per Asset nel PAC")
-        # ... (Logica tabella WAP come prima) ...
         final_asset_details_map = get_final_asset_details(asset_details_history_df, tickers_list)
         wap_map = calculate_wap_for_assets(final_asset_details_map)
         table_data_wap = []
         for ticker_wap in tickers_list:
             asset_info = final_asset_details_map.get(ticker_wap, {'shares': 0.0, 'capital_invested': 0.0})
-            table_data_wap.append({"Ticker": ticker_wap, "Quote Finali": f"{asset_info['shares']:.4f}", "Capitale Investito (Asset)": f"{asset_info['capital_invested']:,.2f}", "Prezzo Medio Carico (WAP)": f"{wap_map.get(ticker_wap, np.nan):,.2f}" if pd.notna(wap_map.get(ticker_wap, np.nan)) else "N/A"})
+            table_data_wap.append({
+                "Ticker": ticker_wap,
+                "Quote Finali": f"{asset_info['shares']:.4f}",
+                "Capitale Investito (Asset)": f"{asset_info['capital_invested']:,.2f}",
+                "Prezzo Medio Carico (WAP)": f"{wap_map.get(ticker_wap, np.nan):,.2f}" if pd.notna(wap_map.get(ticker_wap, np.nan)) else "N/A"
+            })
         if table_data_wap: st.table(pd.DataFrame(table_data_wap).set_index("Ticker"))
+    else: st.warning("Dati storici dettagliati per asset non disponibili.")
+
+    # --- SEZIONE DOWNLOAD DATI ---
+    st.subheader("Download Dati Simulazione (CSV)")
+    if 'df_for_table' in locals() and not df_for_table.empty: # df_for_table è la tabella delle metriche
+        csv_metrics = df_for_table.reset_index().to_csv(index=False).encode('utf-8')
+        st.download_button(label="Scarica Tabella Metriche (CSV)", data=csv_metrics, file_name="metriche_simulazione.csv", mime='text/csv', key='dl_metrics_v7')
+    if not pac_total_df.empty:
+        csv_pac_total = pac_total_df.to_csv(index=False).encode('utf-8')
+        st.download_button(label="Scarica Evoluzione PAC (CSV)", data=csv_pac_total, file_name="evoluzione_pac.csv", mime='text/csv', key='dl_pac_total_v7')
+    if not lump_sum_df.empty:
+        csv_lump_sum = lump_sum_df.to_csv(index=False).encode('utf-8')
+        st.download_button(label="Scarica Evoluzione Lump Sum (CSV)", data=csv_lump_sum, file_name="evoluzione_lumpsum.csv", mime='text/csv', key='dl_lumpsum_v7')
+    if asset_details_history_df is not None and not asset_details_history_df.empty:
+        csv_asset_details = asset_details_history_df.to_csv(index=False).encode('utf-8')
+        st.download_button(label="Scarica Dettagli per Asset PAC (CSV)", data=csv_asset_details, file_name="dettagli_asset_pac.csv", mime='text/csv', key='dl_asset_details_v7')
     
-    # In main.py, all'interno del blocco "if run_simulation_button:" 
-# e dopo la visualizzazione delle tabelle e grafici esistenti.
-# In main.py, all'interno del blocco "if run_simulation_button:" 
-# e dopo la visualizzazione delle tabelle e grafici esistenti.
+    # Pulsante Download PDF (per ora, chiama la funzione che genera un PDF base)
+    if not pac_total_df.empty and 'df_for_table' in locals() and not df_for_table.empty :
+        # Prepara df per asset details per il PDF
+        asset_details_final_for_pdf_table = pd.DataFrame()
+        if asset_details_history_df is not None and not asset_details_history_df.empty:
+            final_asset_details_map_pdf = get_final_asset_details(asset_details_history_df, tickers_list)
+            wap_map_pdf = calculate_wap_for_assets(final_asset_details_map_pdf)
+            table_data_wap_pdf = []
+            for ticker_wap_pdf in tickers_list:
+                asset_info_pdf = final_asset_details_map_pdf.get(ticker_wap_pdf, {'shares': 0.0, 'capital_invested': 0.0})
+                table_data_wap_pdf.append({
+                    "Ticker": ticker_wap_pdf,
+                    "Quote Finali": f"{asset_info_pdf['shares']:.4f}",
+                    "Cap.Inv.(Asset)": f"{asset_info_pdf['capital_invested']:,.2f}",
+                    "WAP": f"{wap_map_pdf.get(ticker_wap_pdf, np.nan):,.2f}" if pd.notna(wap_map_pdf.get(ticker_wap_pdf, np.nan)) else "N/A"
+                })
+            if table_data_wap_pdf: asset_details_final_for_pdf_table = pd.DataFrame(table_data_wap_pdf).set_index("Ticker")
 
-            # --- SEZIONE DOWNLOAD DATI (CSV come prima) ---
-            st.subheader("Download Dati Simulazione (CSV)")
-            # ... (codice per i pulsanti di download CSV come prima, assicurati che funzionino) ...
-            if not df_for_table.empty:
-                csv_metrics = df_for_table.reset_index().to_csv(index=False).encode('utf-8')
-                st.download_button(label="Scarica Tabella Metriche (CSV)", data=csv_metrics, file_name="metriche_simulazione.csv", mime='text/csv', key='dl_metrics_v7')
-            if not pac_total_df.empty:
-                csv_pac_total = pac_total_df.to_csv(index=False).encode('utf-8')
-                st.download_button(label="Scarica Evoluzione PAC (CSV)", data=csv_pac_total, file_name="evoluzione_pac.csv", mime='text/csv', key='dl_pac_total_v7')
-            if not lump_sum_df.empty:
-                csv_lump_sum = lump_sum_df.to_csv(index=False).encode('utf-8')
-                st.download_button(label="Scarica Evoluzione Lump Sum (CSV)", data=csv_lump_sum, file_name="evoluzione_lumpsum.csv", mime='text/csv', key='dl_lumpsum_v7')
-            if asset_details_history_df is not None and not asset_details_history_df.empty:
-                csv_asset_details = asset_details_history_df.to_csv(index=False).encode('utf-8')
-                st.download_button(label="Scarica Dettagli per Asset PAC (CSV)", data=csv_asset_details, file_name="dettagli_asset_pac.csv", mime='text/csv', key='dl_asset_details_v7')
+        pac_params_for_pdf = {
+            "start_date": pac_start_date_contributions_ui.strftime('%Y-%m-%d'),
+            "duration_months": duration_months_contributions_input,
+            "monthly_investment": f"{monthly_investment_input:,.2f}",
+            "reinvest_div": reinvest_dividends_input,
+            "rebalance_active": rebalance_active_input,
+            "rebalance_freq": rebalance_frequency_input_str if rebalance_active_input else "N/A"
+        }
+        try:
+            pdf_bytes = generate_pac_report_pdf(
+                tickers_list=tickers_list,
+                allocations_float_list_raw=allocations_float_list_raw,
+                pac_params=pac_params_for_pdf,
+                metrics_df=df_for_table.reset_index(), 
+                pac_total_df=pac_total_df, # Questi sono i df completi, estesi
+                lump_sum_df=lump_sum_df,
+                asset_details_final_df=asset_details_final_for_pdf_table.reset_index() 
+                # Aggiungeremo le figure Matplotlib qui quando saranno pronte
+            )
+            st.download_button(
+                label="Scarica Report Riepilogativo (PDF)", data=pdf_bytes,
+                file_name=f"report_pac_{'_'.join(tickers_list)}.pdf", mime='application/pdf', key='dl_report_pdf_v7'
+            )
+        except Exception as e_pdf:
+            st.warning(f"Impossibile generare il report PDF al momento: {e_pdf}")
 
+else: 
+    st.info("Inserisci parametri e avvia simulazione.")
 
-            # --- NUOVO: DEBUG E PULSANTE DOWNLOAD PDF ---
-            st.subheader("Download Report Completo (PDF)")
-            st.write("--- DEBUG (PDF): Inizio sezione PDF ---")
-
-            # Stampa lo stato delle variabili necessarie per la condizione if
-            st.write(f"--- DEBUG (PDF): `pac_total_df` è vuoto? {pac_total_df.empty} ---")
-            if not pac_total_df.empty:
-                 st.write(f"--- DEBUG (PDF): `pac_total_df` colonne: {pac_total_df.columns.tolist()} ---")
-            
-            # df_for_table è la tabella delle metriche, dovrebbe esistere se siamo arrivati qui
-            # Viene creata sopra il grafico Equity
-            df_for_table_exists_and_not_empty = 'df_for_table' in locals() and not df_for_table.empty
-            st.write(f"--- DEBUG (PDF): `df_for_table` esiste e non è vuota? {df_for_table_exists_and_not_empty} ---")
-            if df_for_table_exists_and_not_empty:
-                 st.write(f"--- DEBUG (PDF): `df_for_table` (metriche) colonne: {df_for_table.reset_index().columns.tolist()} ---")
-
-
-            if not pac_total_df.empty and df_for_table_exists_and_not_empty:
-                st.write("--- DEBUG (PDF): Condizione per generare PDF soddisfatta. Tentativo... ---")
-                try:
-                    pac_params_for_pdf = {
-                        "start_date": pac_start_date_contributions_ui.strftime('%Y-%m-%d'),
-                        "duration_months": duration_months_contributions_input,
-                        "monthly_investment": f"{monthly_investment_input:,.2f}",
-                        "reinvest_div": reinvest_dividends_input,
-                        "rebalance_active": rebalance_active_input,
-                        "rebalance_freq": rebalance_frequency_input_str if rebalance_active_input else "N/A"
-                    }
-                    
-                    asset_details_final_for_pdf_table = pd.DataFrame()
-                    if asset_details_history_df is not None and not asset_details_history_df.empty:
-                        final_asset_details_map_pdf = get_final_asset_details(asset_details_history_df, tickers_list)
-                        wap_map_pdf = calculate_wap_for_assets(final_asset_details_map_pdf)
-                        table_data_wap_pdf = []
-                        for ticker_wap_pdf in tickers_list:
-                            asset_info_pdf = final_asset_details_map_pdf.get(ticker_wap_pdf, {'shares': 0.0, 'capital_invested': 0.0})
-                            table_data_wap_pdf.append({
-                                "Ticker": ticker_wap_pdf, # Aggiungiamo Ticker come colonna per reset_index dopo
-                                "Quote Finali": f"{asset_info_pdf['shares']:.4f}",
-                                "Cap.Inv.(Asset)": f"{asset_info_pdf['capital_invested']:,.2f}",
-                                "WAP": f"{wap_map_pdf.get(ticker_wap_pdf, np.nan):,.2f}" if pd.notna(wap_map_pdf.get(ticker_wap_pdf, np.nan)) else "N/A"
-                            })
-                        if table_data_wap_pdf:
-                             asset_details_final_for_pdf_table = pd.DataFrame(table_data_wap_pdf) # Non impostare l'indice qui
-                    
-                    st.write("--- DEBUG (PDF): Dati per `generate_pac_report_pdf` preparati. ---")
-                    st.write(f"--- DEBUG (PDF): `df_for_table` (metriche) passato a PDF ha {len(df_for_table)} righe. ---")
-                    st.write(f"--- DEBUG (PDF): `asset_details_final_for_pdf_table` passato a PDF ha {len(asset_details_final_for_pdf_table)} righe. ---")
-
-
-                    pdf_bytes = generate_pac_report_pdf(
-                        tickers_list=tickers_list,
-                        allocations_float_list_raw=allocations_float_list_raw,
-                        pac_params=pac_params_for_pdf,
-                        metrics_df=df_for_table.reset_index(), # Passa con "Metrica" come colonna
-                        pac_total_df=pac_total_df,
-                        lump_sum_df=lump_sum_df,
-                        asset_details_final_df=asset_details_final_for_pdf_table # Passa il DataFrame
-                    )
-                    st.write("--- DEBUG (PDF): `generate_pac_report_pdf` chiamato con successo. ---")
-                    
-                    st.download_button(
-                        label="Scarica Report Completo (PDF)",
-                        data=pdf_bytes,
-                        file_name=f"report_pac_simulazione_{'_'.join(tickers_list)}.pdf",
-                        mime='application/pdf',
-                        key='download_report_pdf_v7' # Chiave aggiornata
-                    )
-                    st.write("--- DEBUG (PDF): Pulsante Download PDF DOVREBBE ESSERE VISUALIZZATO. ---")
-
-                except Exception as e_pdf:
-                    st.error(f"Errore durante la generazione o la preparazione del PDF: {e_pdf}")
-                    st.write("--- DEBUG (PDF): Eccezione durante la generazione PDF. ---")
-                    import traceback
-                    st.text(traceback.format_exc())
-            else:
-                st.warning("Dati PAC o tabella metriche non disponibili, impossibile generare il pulsante di download PDF.")
-                st.write(f"--- DEBUG (PDF): Condizione `if not pac_total_df.empty and df_for_table_exists_and_not_empty` NON soddisfatta. ---")
-
-            # --- FINE SEZIONE DOWNLOAD DATI ---
-  
 st.sidebar.markdown("---"); st.sidebar.markdown("Kriterion Quant")
