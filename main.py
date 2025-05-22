@@ -1,133 +1,323 @@
 # simulatore_pac/main.py
-
 import streamlit as st
 import pandas as pd
-from datetime import datetime, date
+import numpy as np
+from datetime import datetime, date, timedelta
 
-# Assumendo che i tuoi moduli siano nella sottocartella 'utils'
-# e che Streamlit sia eseguito dalla cartella 'simulatore_pac'
-from utils.data_loader import load_historical_data_yf
-from utils.pac_engine import run_basic_pac_simulation
-from utils.performance import (
-    get_total_capital_invested,
-    get_final_portfolio_value,
-    calculate_total_return_percentage,
-    calculate_cagr,
-    get_duration_years
-)
+# Importazioni dai moduli utils
+try:
+    from utils.data_loader import load_historical_data_yf
+    from utils.pac_engine import run_pac_simulation # Aspetta (..., simulation_actual_end_date_dt)
+    from utils.benchmark_engine import run_lump_sum_simulation # Aspetta (..., simulation_end_date)
+    from utils.performance import (
+        get_total_capital_invested, get_final_portfolio_value,
+        calculate_total_return_percentage, calculate_cagr, get_duration_years,
+        calculate_portfolio_returns, calculate_annualized_volatility,
+        calculate_sharpe_ratio, calculate_max_drawdown, calculate_drawdown_series,
+        generate_cash_flows_for_xirr, calculate_xirr_metric,
+        # Funzioni per WAP e quote finali
+        get_final_shares_per_asset, calculate_wap_per_asset
+        # Rimosse: calculate_annual_returns, calculate_rolling_...
+    )
+    IMPORT_SUCCESS = True
+except ImportError as import_err:
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = str(import_err)
 
-# Configurazione della pagina Streamlit
-st.set_page_config(page_title="Simulatore PAC Base", layout="wide")
+st.set_page_config(page_title="Simulatore PAC Core", layout="wide")
+st.title("📘 Simulatore PAC Essenziale")
+st.caption("Progetto Kriterion Quant - Focus su Funzionalità Core")
 
-st.title("📘 Simulatore di Piano di Accumulo Capitale (PAC)")
-st.caption("Versione Base - Progetto Kriterion Quant")
+if not IMPORT_SUCCESS:
+    st.error(f"Errore critico durante l'importazione dei moduli utils: {IMPORT_ERROR_MESSAGE}")
+    st.stop()
 
 # --- Sidebar per Input Utente ---
-st.sidebar.header("Parametri della Simulazione")
+st.sidebar.header("Parametri Simulazione")
 
-ticker_symbol = st.sidebar.text_input("Ticker Strumento Finanziario (es. AAPL, GOOGL, CSPX.AS, VWCE.DE)", "AAPL")
-monthly_investment_input = st.sidebar.number_input("Importo Versamento Mensile (€/$)", min_value=10.0, value=150.0, step=10.0)
-# Per le date, è bene avere dei default ragionevoli
-default_start_date_pac = date(2020, 1, 1)
-default_end_date_data_calc = date.today() # Usato per calcolare una durata di default
-# Calcola una durata di default, ad es. 3 anni o fino ad oggi se meno di 3 anni
-duration_years_default = 3
-pac_start_date_input = st.sidebar.date_input("Data Inizio PAC", default_start_date_pac)
+st.sidebar.subheader("Asset e Allocazioni")
+tickers_input_str = st.sidebar.text_input("Tickers (virgola sep., es. AAPL,MSFT,GOOG)", "AAPL,GOOG,MSFT")
+allocations_input_str = st.sidebar.text_input("Allocazioni % (virgola sep., es. 60,20,20)", "60,20,20")
 
-# Durata in mesi
-# Calcola la data di fine dei dati basata sulla data di inizio + durata
-# Per semplicità, usiamo una durata fissa in mesi per ora.
-duration_months_input = st.sidebar.number_input("Durata PAC (in mesi)", min_value=6, value=36, step=1)
+st.sidebar.subheader("Parametri PAC")
+monthly_investment_input = st.sidebar.number_input("Importo Versamento Mensile (€/$)", min_value=10.0, value=200.0, step=10.0)
+default_start_date_pac_sidebar = date(2020, 1, 1) # Data inizio contributi
+pac_start_date_contributions_ui = st.sidebar.date_input("Data Inizio Contributi PAC", default_start_date_pac_sidebar)
+default_duration_months = 36
+duration_months_contributions_input = st.sidebar.number_input("Durata Contributi PAC (mesi)", min_value=6, value=default_duration_months, step=1)
+reinvest_dividends_input = st.sidebar.checkbox("Reinvesti Dividendi (per PAC e LS)?", value=True)
 
-# Pulsante per avviare la simulazione
-run_simulation_button = st.sidebar.button("🚀 Avvia Simulazione PAC")
+st.sidebar.subheader("Ribilanciamento Periodico (Solo per PAC)")
+rebalance_active_input = st.sidebar.checkbox("Attiva Ribilanciamento (per PAC)?", value=False)
+rebalance_frequency_input_str = None
+if rebalance_active_input:
+    rebalance_frequency_input_str = st.sidebar.selectbox(
+        "Frequenza Ribilanciamento", ["Annuale", "Semestrale", "Trimestrale"], index=0
+    )
+
+st.sidebar.subheader("Parametri Metriche")
+risk_free_rate_input = st.sidebar.number_input("Tasso Risk-Free Annuale (%) per Sharpe", min_value=0.0, value=1.0, step=0.1, format="%.2f")
+
+run_simulation_button = st.sidebar.button("🚀 Avvia Simulazioni")
 
 # --- Area Principale per Output ---
 if run_simulation_button:
-    st.header(f"Risultati Simulazione PAC per: {ticker_symbol}")
+    # --- VALIDAZIONE INPUT ---
+    tickers_list = [t.strip().upper() for t in tickers_input_str.split(',') if t.strip()]
+    error_in_input = False
+    allocations_list_norm = []
+    allocations_float_list_raw = []
 
-    # Converti le date degli input in stringhe formato 'YYYY-MM-DD' per le funzioni
-    pac_start_date_str = pac_start_date_input.strftime('%Y-%m-%d')
+    if not tickers_list:
+        st.error("Errore: Devi inserire almeno un ticker."); error_in_input = True
+    
+    if not error_in_input:
+        try:
+            allocations_float_list_raw = [float(a.strip()) for a in allocations_input_str.split(',') if a.strip()]
+            if len(tickers_list) != len(allocations_float_list_raw):
+                st.error("Errore: Il numero di ticker deve corrispondere al numero di allocazioni."); error_in_input = True
+            elif not np.isclose(sum(allocations_float_list_raw), 100.0):
+                st.error(f"Errore: La somma delle allocazioni ({sum(allocations_float_list_raw)}%) deve essere 100%."); error_in_input = True
+            else:
+                allocations_list_norm = [a / 100.0 for a in allocations_float_list_raw]
+        except ValueError:
+            st.error("Errore: Le allocazioni devono essere numeri validi."); error_in_input = True
+    
+    if error_in_input:
+        st.stop()
 
-    # Determina il periodo per scaricare i dati storici
-    # Abbiamo bisogno di dati da un po' prima dell'inizio del PAC fino alla fine della durata del PAC
-    data_fetch_start_date = (pac_start_date_input - pd.Timedelta(days=90)).strftime('%Y-%m-%d') # Un buffer prima
-    # Calcola la data di fine approssimativa della simulazione per scaricare i dati
-    sim_end_date_approx = pd.to_datetime(pac_start_date_input) + pd.DateOffset(months=duration_months_input)
-    data_fetch_end_date = (sim_end_date_approx + pd.Timedelta(days=30)).strftime('%Y-%m-%d') # Un buffer dopo
-
-    with st.spinner(f"Caricamento dati storici per {ticker_symbol}..."):
-        historical_data = load_historical_data_yf(
-            ticker=ticker_symbol,
-            start_date=data_fetch_start_date,
-            end_date=data_fetch_end_date
-        )
-
-    if historical_data.empty:
-        st.error(f"Impossibile caricare i dati storici per {ticker_symbol}. Controlla il ticker o il periodo.")
+    st.header(f"Risultati Simulazione per: {', '.join(tickers_list)}")
+    if allocations_float_list_raw:
+        alloc_display_list = [f"{tickers_list[i]}: {allocations_float_list_raw[i]}%" for i in range(len(tickers_list))]
+        st.write(f"Allocazioni Target: {', '.join(alloc_display_list)}")
+    if rebalance_active_input:
+        st.write(f"Ribilanciamento Attivo (PAC): Sì, Frequenza: {rebalance_frequency_input_str}")
     else:
-        st.success(f"Dati storici per {ticker_symbol} caricati correttamente.")
-        
-        with st.spinner("Esecuzione simulazione PAC..."):
-            pac_simulation_df = run_basic_pac_simulation(
-                price_data=historical_data.copy(), # Passa una copia
-                monthly_investment=monthly_investment_input,
-                start_date_pac=pac_start_date_str,
-                duration_months=duration_months_input
+        st.write("Ribilanciamento Attivo (PAC): No")
+
+    # --- PREPARAZIONE DATE E CARICAMENTO DATI ---
+    pac_contribution_start_dt = pd.to_datetime(pac_start_date_contributions_ui)
+    pac_contribution_start_str = pac_contribution_start_dt.strftime('%Y-%m-%d')
+    # Data di fine dei *versamenti* PAC
+    pac_contribution_end_dt = pac_contribution_start_dt + pd.DateOffset(months=duration_months_contributions_input)
+    
+    data_download_start_str = (pac_contribution_start_dt - pd.Timedelta(days=365*1)).strftime('%Y-%m-%d')
+    data_download_end_str = datetime.today().strftime('%Y-%m-%d') # Scarica dati fino ad oggi
+
+    historical_data_map = {}
+    all_data_loaded_successfully = True
+    latest_data_date_for_all_tickers = pd.Timestamp.min # Data più recente tra tutti i ticker caricati
+    
+    for tkr in tickers_list:
+        with st.spinner(f"Caricamento dati per {tkr}..."):
+            data = load_historical_data_yf(tkr, data_download_start_str, data_download_end_str)
+        if data.empty or data.index.min() > pac_contribution_start_dt or \
+           data.index.max() < (pac_contribution_end_dt - pd.Timedelta(days=1)): # Assicura copertura almeno del periodo di contribuzione
+            st.error(f"Dati storici insufficienti per {tkr} per coprire almeno il periodo di contribuzione PAC (fino a {pac_contribution_end_dt.date()}).")
+            all_data_loaded_successfully = False; break
+        historical_data_map[tkr] = data
+        if data.index.max() > latest_data_date_for_all_tickers:
+             latest_overall_data_date_ts = data.index.max() # Questo dovrebbe essere il MAX delle date finali
+    
+    if not all_data_loaded_successfully: st.stop()
+    st.success("Dati storici caricati.")
+    
+    # Data finale per l'intera simulazione e per l'asse X dei grafici
+    simulation_actual_end_dt = min(latest_overall_data_date_ts, pd.Timestamp(datetime.today()))
+    # L'asse X dei grafici deve coprire dal primo investimento PAC fino alla fine della simulazione estesa
+    chart_axis_start_dt = pac_contribution_start_dt
+    
+    base_chart_date_index = pd.DatetimeIndex([])
+    if chart_axis_start_dt <= simulation_actual_end_dt:
+        base_chart_date_index = pd.date_range(start=chart_axis_start_dt, end=simulation_actual_end_dt, freq='B')
+        base_chart_date_index.name = 'Date'
+    
+    if base_chart_date_index.empty:
+        st.warning("Impossibile generare l'indice di date per i grafici. Controllare le date di simulazione.")
+        st.stop()
+
+    # --- ESECUZIONE SIMULAZIONI ---
+    pac_total_df, asset_details_history_df = pd.DataFrame(), pd.DataFrame()
+    try:
+        with st.spinner("Esecuzione simulazione PAC..."): 
+            pac_total_df, asset_details_history_df = run_pac_simulation(
+                historical_data_map, tickers_list, allocations_list_norm, 
+                monthly_investment_input, pac_contribution_start_str, 
+                duration_months_contributions_input, # Durata dei SOLI versamenti
+                reinvest_dividends_input, rebalance_active_input, rebalance_frequency_input_str
+                # run_pac_simulation ora usa le date in historical_data_map per la sua fine effettiva
             )
+    except Exception as e: st.error(f"Errore CRITICO PAC: {e}"); import traceback; st.text(traceback.format_exc()); st.stop()
 
-        if pac_simulation_df.empty or 'PortfolioValue' not in pac_simulation_df.columns:
-            st.error("La simulazione PAC non ha prodotto risultati validi.")
-        else:
-            st.success("Simulazione PAC completata.")
+    lump_sum_df = pd.DataFrame()
+    if not pac_total_df.empty and 'PortfolioValue' in pac_total_df.columns and len(pac_total_df)>=2:
+        total_invested_by_pac = get_total_capital_invested(pac_total_df)
+        if total_invested_by_pac > 0:
+            with st.spinner("Esecuzione simulazione Lump Sum..."): 
+                lump_sum_df = run_lump_sum_simulation(
+                    historical_data_map, tickers_list, allocations_list_norm, 
+                    total_invested_by_pac, 
+                    pac_contribution_start_dt, # Data investimento LS
+                    # Le date di start/end per LS engine sono ora implicite dalla estensione di historical_data_map
+                    reinvest_dividends=reinvest_dividends_input
+                )
+            if not lump_sum_df.empty: st.success("Simulazione Lump Sum completata.")
+    
+    if pac_total_df.empty or 'PortfolioValue' not in pac_total_df.columns or len(pac_total_df)<2: 
+        st.error("Simulazione PAC non ha prodotto risultati sufficienti per l'analisi."); st.stop()
+    st.success("Simulazioni completate. Elaborazione output.")
 
-            # Calcolo Metriche di Performance
-            total_invested = get_total_capital_invested(pac_simulation_df)
-            final_value = get_final_portfolio_value(pac_simulation_df)
-            total_return_perc = calculate_total_return_percentage(final_value, total_invested)
+    # --- TABELLA METRICHE RIEPILOGATIVE ---
+    def calculate_and_format_metrics(sim_df, strategy_name, total_invested_override=None, is_pac=False):
+        metrics_calc = {} # Dizionario per valori numerici
+        metrics_display = {} # Dizionario per valori formattati
+        
+        keys_ordered = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", "Volatilità Ann.", "Sharpe", "Max Drawdown"]
+        for k in keys_ordered: metrics_display[k] = "N/A" # Pre-popola con N/A
+
+        if sim_df.empty or 'PortfolioValue' not in sim_df.columns or len(sim_df) < 2: 
+            return metrics_display
+
+        actual_total_invested = total_invested_override if total_invested_override is not None else get_total_capital_invested(sim_df)
+        metrics_calc["Capitale Investito"] = actual_total_invested
+        metrics_display["Capitale Investito"] = f"{actual_total_invested:,.2f}"
+        
+        final_portfolio_val = get_final_portfolio_value(sim_df)
+        metrics_calc["Valore Finale"] = final_portfolio_val
+        metrics_display["Valore Finale"] = f"{final_portfolio_val:,.2f}"
+        
+        metrics_calc["Rend. Totale"] = calculate_total_return_percentage(final_portfolio_val, actual_total_invested)
+        metrics_display["Rend. Totale"] = f"{metrics_calc['Rend. Totale']:.2f}%" if pd.notna(metrics_calc['Rend. Totale']) else "N/A"
+        
+        duration_yrs_strat = get_duration_years(sim_df.copy()) # Usa copia per evitare side effects
+        cagr_strat = calculate_cagr(final_portfolio_val, actual_total_invested, duration_yrs_strat)
+        metrics_calc["CAGR"] = cagr_strat
+        metrics_display["CAGR"] = f"{cagr_strat:.2f}%" if pd.notna(cagr_strat) else "N/A"
+        
+        returns_strat = calculate_portfolio_returns(sim_df.copy())
+        vol_strat = calculate_annualized_volatility(returns_strat)
+        sharpe_strat = calculate_sharpe_ratio(returns_strat, risk_free_rate_annual=(risk_free_rate_input/100.0))
+        mdd_strat = calculate_max_drawdown(sim_df.copy())
+        
+        metrics_calc["Volatilità Ann."] = vol_strat
+        metrics_display["Volatilità Ann."] = f"{vol_strat:.2f}%" if pd.notna(vol_strat) else "N/A"
+        metrics_calc["Sharpe"] = sharpe_strat
+        metrics_display["Sharpe"] = f"{sharpe_strat:.2f}" if pd.notna(sharpe_strat) else "N/A"
+        metrics_calc["Max Drawdown"] = mdd_strat
+        metrics_display["Max Drawdown"] = f"{mdd_strat:.2f}%" if pd.notna(mdd_strat) else "N/A"
+
+        if is_pac:
+            xirr_dates, xirr_values = generate_cash_flows_for_xirr(sim_df, pac_contribution_start_str, duration_months_contributions_input, monthly_investment_input, final_portfolio_val)
+            xirr_val = calculate_xirr_metric(xirr_dates, xirr_values)
+            metrics_calc["XIRR"] = xirr_val
+            metrics_display["XIRR"] = f"{xirr_val:.2f}%" if pd.notna(xirr_val) else "N/A"
+        else: # Per Lump Sum, XIRR è concettualmente simile al CAGR se non ci sono altri flussi
+            metrics_calc["XIRR"] = cagr_strat 
+            metrics_display["XIRR"] = metrics_display["CAGR"]
+        return metrics_display
+
+    metrics_pac_display = calculate_and_format_metrics(pac_total_df, "PAC", is_pac=True)
+    df_for_table = pd.DataFrame.from_dict(metrics_pac_display, orient='index', columns=['PAC'])
+    df_for_table.index.name = "Metrica"
+
+    if not lump_sum_df.empty:
+        total_invested_val_pac = get_total_capital_invested(pac_total_df) # LS investe lo stesso capitale totale del PAC
+        metrics_ls_display = calculate_and_format_metrics(lump_sum_df, "Lump Sum", total_invested_override=total_invested_val_pac, is_pac=False)
+        df_for_table["Lump Sum"] = df_for_table.index.map(metrics_ls_display)
+    
+    st.subheader("Metriche di Performance Riepilogative")
+    st.table(df_for_table)
+
+    # --- GRAFICO EQUITY LINE ESTESO ---
+    st.subheader("Andamento Comparativo del Portafoglio")
+    if not base_chart_date_index.empty:
+        equity_plot_df = pd.DataFrame(index=base_chart_date_index)
+        if not pac_total_df.empty:
+            pac_equity_data = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))
+            equity_plot_df['PAC Valore Portafoglio'] = pac_equity_data['PortfolioValue']
+            equity_plot_df['PAC Capitale Investito'] = pac_equity_data['InvestedCapital']
+        if not lump_sum_df.empty:
+            ls_equity_data = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))
+            equity_plot_df['Lump Sum Valore Portafoglio'] = ls_equity_data['PortfolioValue']
+        
+        cash_val = get_total_capital_invested(pac_total_df) if not pac_total_df.empty else 0
+        if cash_val > 0: equity_plot_df['Cash (Valore Fisso 0%)'] = cash_val
+        
+        cols_to_ffill = ['PAC Valore Portafoglio', 'Lump Sum Valore Portafoglio', 'Cash (Valore Fisso 0%)', 'PAC Capitale Investito']
+        for col in cols_to_ffill:
+            if col in equity_plot_df.columns: equity_plot_df[col] = equity_plot_df[col].ffill()
+        
+        # Gestione PAC Capitale Investito post-contribuzioni
+        if 'PAC Capitale Investito' in equity_plot_df.columns and not pac_total_df.empty:
+            last_contribution_date_dt = pac_contribution_start_dt + pd.DateOffset(months=duration_months_contributions_input -1) # Mese dell'ultimo contributo
+            # Trova la data effettiva più vicina nell'indice
+            if not base_chart_date_index.empty:
+                 actual_last_contrib_idx_date = base_chart_date_index[base_chart_date_index.get_indexer([last_contribution_date_dt], method='ffill')[0]]
+                 last_known_cap_invested = equity_plot_df.loc[actual_last_contrib_idx_date, 'PAC Capitale Investito']
+                 if pd.notna(last_known_cap_invested):
+                     equity_plot_df.loc[equity_plot_df.index > actual_last_contrib_idx_date, 'PAC Capitale Investito'] = last_known_cap_invested
+        
+        cols_to_plot = [c for c in equity_plot_df.columns if not equity_plot_df[c].isnull().all()]
+        if cols_to_plot: st.line_chart(equity_plot_df[cols_to_plot])
+        else: st.warning("Dati insufficienti per grafico equity.")
+    else: st.warning("Indice base per grafici non creato.")
+
+    # --- GRAFICO DRAWDOWN ESTESO ---
+    st.subheader("Andamento del Drawdown nel Tempo")
+    if not base_chart_date_index.empty:
+        drawdown_plot_data = pd.DataFrame(index=base_chart_date_index)
+        if not pac_total_df.empty:
+            pac_val_series = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
+            drawdown_plot_data['PAC Drawdown (%)'] = calculate_drawdown_series(pac_val_series)
+        if not lump_sum_df.empty:
+            ls_val_series = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']
+            drawdown_plot_data['Lump Sum Drawdown (%)'] = calculate_drawdown_series(ls_val_series)
+        
+        for col in drawdown_plot_data.columns: drawdown_plot_data[col] = drawdown_plot_data[col].ffill()
+        
+        cols_to_plot_dd = [c for c in drawdown_plot_data.columns if not drawdown_plot_data[c].isnull().all()]
+        if cols_to_plot_dd: st.line_chart(drawdown_plot_data[cols_to_plot_dd])
+        else: st.warning("Dati insufficienti per grafico drawdown.")
+    else: st.warning("Indice base per grafici non creato.")
+
+    # --- STACKED AREA CHART ESTESO ---
+    if asset_details_history_df is not None and not asset_details_history_df.empty and not base_chart_date_index.empty:
+        st.subheader("Allocazione Dinamica Portafoglio PAC (Valore per Asset)")
+        value_cols_stacked = [f'{t}_value' for t in tickers_list if f'{t}_value' in asset_details_history_df.columns]
+        if value_cols_stacked:
+            stacked_df_temp = asset_details_history_df.set_index(pd.to_datetime(asset_details_history_df['Date']))[value_cols_stacked]
+            stacked_df_plot = pd.DataFrame(index=base_chart_date_index)
+            for col in stacked_df_temp.columns:
+                stacked_df_plot = stacked_df_plot.join(stacked_df_temp[[col]], how='left')
+                stacked_df_plot[col] = stacked_df_plot[col].ffill().fillna(0) # ffill e poi fillna(0)
             
-            # La colonna 'Date' in pac_simulation_df è già stata convertita in datetime da pac_engine
-            duration_yrs = get_duration_years(pac_simulation_df)
-            cagr_perc = calculate_cagr(final_value, total_invested, duration_yrs)
+            if not stacked_df_plot.empty and not stacked_df_plot.isnull().all().all():
+                st.area_chart(stacked_df_plot)
+            else: st.warning("Dati per Stacked Area vuoti o solo NaN dopo elaborazione.")
+        else: st.warning("Nessuna colonna `_value` per Stacked Area.")
+    else: st.warning("Dati per asset o indice base non disponibili per Stacked Area.")
 
-            # Visualizzazione Metriche
-            st.subheader("Metriche di Performance Riepilogative")
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Capitale Totale Investito", f"{total_invested:,.2f}")
-            col2.metric("Valore Finale Portafoglio", f"{final_value:,.2f}")
-            col3.metric("Rendimento Totale", f"{total_return_perc:.2f}%")
-            if pd.notna(cagr_perc):
-                col4.metric("CAGR", f"{cagr_perc:.2f}%")
-            else:
-                col4.metric("CAGR", "N/A")
-            
-            st.write(f"_Durata approssimativa della simulazione: {duration_yrs:.2f} anni._")
+    # --- TABELLA QUOTE/WAP (come prima) ---
+    if asset_details_history_df is not None and not asset_details_history_df.empty:
+        st.subheader("Dettagli Finali per Asset nel PAC")
+        # ... (logica tabella WAP come prima, usando get_final_shares_per_asset e calculate_wap_per_asset da performance.py) ...
+        final_shares_map = get_final_shares_per_asset(asset_details_history_df, tickers_list)
+        wap_map = calculate_wap_per_asset(asset_details_history_df, tickers_list)
+        
+        table_data = []
+        for ticker in tickers_list:
+            last_day_details = asset_details_history_df.iloc[-1] # Per capital_invested_asset
+            capital_invested_specific_asset = last_day_details.get(f'{ticker}_capital_invested', 0.0)
+            table_data.append({
+                "Ticker": ticker,
+                "Quote Finali": f"{final_shares_map.get(ticker, 0.0):.4f}",
+                "Capitale Investito (Asset)": f"{capital_invested_specific_asset:,.2f}",
+                "Prezzo Medio Carico (WAP)": f"{wap_map.get(ticker, np.nan):,.2f}" if pd.notna(wap_map.get(ticker, np.nan)) else "N/A"
+            })
+        if table_data: st.table(pd.DataFrame(table_data).set_index("Ticker"))
+        else: st.warning("Impossibile generare tabella dettagli per asset.")
 
+else: 
+    st.info("Inserisci parametri e avvia simulazione.")
 
-            # Visualizzazione Grafico Equity Line
-            st.subheader("Andamento del Portafoglio nel Tempo")
-            
-            # Prepara il DataFrame per st.line_chart
-            # Deve avere la colonna 'Date' come indice (o essere la prima colonna datetime)
-            chart_df = pac_simulation_df[['Date', 'PortfolioValue', 'InvestedCapital']].copy()
-            chart_df['Date'] = pd.to_datetime(chart_df['Date'])
-            chart_df = chart_df.set_index('Date')
-            
-            if not chart_df.empty:
-                st.line_chart(chart_df)
-            else:
-                st.warning("Non ci sono dati sufficienti per visualizzare il grafico.")
-            
-            # Mostra il DataFrame con i risultati (opzionale, per debug o dettaglio)
-            if st.checkbox("Mostra dati dettagliati della simulazione PAC"):
-                st.dataframe(pac_simulation_df.style.format({
-                    "Price": "{:.2f}", "InvestedCapital": "{:,.2f}",
-                    "SharesOwned": "{:.4f}", "CashHeld": "{:.2f}",
-                    "PortfolioValue": "{:,.2f}"
-                }))
-
-else:
-    st.info("Inserisci i parametri nella sidebar a sinistra e avvia la simulazione.")
-
-st.sidebar.markdown("---")
-st.sidebar.markdown("Progetto Didattico Kriterion Quant")
+st.sidebar.markdown("---"); st.sidebar.markdown("Kriterion Quant")
