@@ -291,3 +291,53 @@ def calculate_wap_per_asset(asset_details_df: pd.DataFrame, tickers: list[str]) 
         else:
             waps[ticker] = np.nan
     return waps
+# Inserisci questa funzione in utils/performance.py
+# Assicurati che sia allo stesso livello di indentazione delle altre definizioni di funzione (non dentro un'altra funzione)
+
+def calculate_annual_returns(portfolio_values_series: pd.Series) -> pd.Series:
+    """
+    Calcola i rendimenti per ogni anno civile coperto dalla serie di valori di portafoglio.
+    L'input portfolio_values_series deve avere un DatetimeIndex.
+    """
+    if not isinstance(portfolio_values_series, pd.Series) or portfolio_values_series.empty or \
+       not isinstance(portfolio_values_series.index, pd.DatetimeIndex) or len(portfolio_values_series.dropna()) < 2:
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    portfolio_values_series = portfolio_values_series.sort_index()
+    portfolio_values_series = portfolio_values_series[~portfolio_values_series.index.duplicated(keep='last')]
+
+    years = sorted(list(set(portfolio_values_series.index.year)))
+    annual_returns_list = []
+
+    if not years:
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    for year in years:
+        start_of_year_values = portfolio_values_series[portfolio_values_series.index.year == year]
+        if start_of_year_values.empty:
+            continue
+
+        if year == years[0]:
+            initial_value_for_year_calc = start_of_year_values.iloc[0]
+        else:
+            end_of_previous_year_series = portfolio_values_series[portfolio_values_series.index.year == year - 1]
+            if not end_of_previous_year_series.empty:
+                initial_value_for_year_calc = end_of_previous_year_series.iloc[-1]
+            else:
+                 annual_returns_list.append({'Year': year, 'Return': np.nan})
+                 continue
+
+        final_value_for_year_calc = start_of_year_values.iloc[-1]
+
+        if pd.notna(initial_value_for_year_calc) and pd.notna(final_value_for_year_calc) and initial_value_for_year_calc != 0:
+            year_return = (final_value_for_year_calc / initial_value_for_year_calc) - 1
+            annual_returns_list.append({'Year': year, 'Return': year_return * 100})
+        else:
+            annual_returns_list.append({'Year': year, 'Return': np.nan})
+
+    if not annual_returns_list:
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    returns_df = pd.DataFrame(annual_returns_list).set_index('Year')['Return']
+    returns_df.name = "Rendimento Annuale (%)"
+    return returns_df
