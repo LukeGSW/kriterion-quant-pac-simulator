@@ -205,20 +205,36 @@ if run_simulation_button:
     else: st.warning("Indice base non creato, grafico drawdown saltato.")
 
     # --- ISTOGRAMMA RENDIMENTI ANNUALI ---
-    st.subheader("Istogramma Rendimenti Annuali (%)")
-    data_for_annual_hist = {}
-    if not pac_total_df.empty:
-        pac_pv_ah = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
-        ar_pac = calculate_annual_returns(pac_pv_ah) # Dovrebbe restituire indice Anno
-        if not ar_pac.empty: data_for_annual_hist["PAC"] = ar_pac
-    if not lump_sum_df.empty:
-        ls_pv_ah = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']
-        ar_ls = calculate_annual_returns(ls_pv_ah) # Dovrebbe restituire indice Anno
-        if not ar_ls.empty: data_for_annual_hist["Lump Sum"] = ar_ls
-    if data_for_annual_hist:
-        annual_hist_df = pd.DataFrame(data_for_annual_hist).dropna(how='all')
-        if not annual_hist_df.empty: st.bar_chart(annual_hist_df) # st.bar_chart gestisce l'indice come asse x
-    else: st.warning("Dati insuff. per Istogramma Rend. Ann.")
+# In main.py, nella sezione ISTOGRAMMA RENDIMENTI ANNUALI
+
+        st.subheader("Istogramma Rendimenti Annuali (%)")
+        data_for_annual_hist = {}
+
+        # Data di fine effettiva della simulazione PAC (non l'estensione del grafico)
+        if not pac_total_df.empty:
+            pac_actual_end_sim_date = pd.to_datetime(pac_total_df['Date'].iloc[-1])
+        
+            pac_pv_ah = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
+            # Passa la serie completa e la data di fine della strategia PAC
+            annual_returns_pac = calculate_annual_returns(pac_pv_ah, strategy_actual_end_date=pac_actual_end_sim_date)
+            if not annual_returns_pac.empty: 
+                data_for_annual_hist["PAC"] = annual_returns_pac
+
+        if not lump_sum_df.empty:
+            ls_actual_end_sim_date = pd.to_datetime(lump_sum_df['Date'].iloc[-1])
+
+            ls_pv_ah = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']
+            # Passa la serie completa e la data di fine della strategia LS
+            annual_returns_ls = calculate_annual_returns(ls_pv_ah, strategy_actual_end_date=ls_actual_end_sim_date)
+            if not annual_returns_ls.empty:
+                data_for_annual_hist["Lump Sum"] = annual_returns_ls
+        
+        if data_for_annual_hist:
+            annual_hist_df = pd.DataFrame(data_for_annual_hist).dropna(how='all')
+            if not annual_hist_df.empty: 
+                st.bar_chart(annual_hist_df)
+        else:
+            st.warning("Dati insuff. per Istogramma Rend. Ann.")
 
     # --- STACKED AREA CHART ESTESO ---
     if asset_details_history_df is not None and not asset_details_history_df.empty and not base_chart_date_index.empty:
