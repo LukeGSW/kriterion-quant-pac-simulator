@@ -48,7 +48,7 @@ PRESET_DEFAULT = {
 }
 
 st.set_page_config(page_title="Simulatore PAC con Preset", layout="wide")
-st.title("📘 Simulatore PAC con Esempio Precaricato")
+st.title("📘 Simulatore PAC Multi Ticker")
 st.caption("Progetto Kriterion Quant")
 
 if not IMPORT_SUCCESS:
