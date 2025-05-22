@@ -235,89 +235,93 @@ def calculate_wap_for_assets(final_asset_details: dict) -> dict:
     return waps
 # in utils/performance.py
 
-def calculate_annual_returns(portfolio_values_series: pd.Series) -> pd.Series:
-    """
-    Calcola i rendimenti per ogni anno civile coperto dalla serie di valori di portafoglio.
-    L'input portfolio_values_series deve avere un DatetimeIndex.
-    """
-    print(f"DEBUG (calc_annual_returns): Ricevuta serie con indice tipo {type(portfolio_values_series.index)}, lunghezza {len(portfolio_values_series)}")
-    if not isinstance(portfolio_values_series, pd.Series) or portfolio_values_series.empty:
-        print("DEBUG (calc_annual_returns): Serie input vuota.")
-        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
-    
-    if not isinstance(portfolio_values_series.index, pd.DatetimeIndex):
-        print(f"DEBUG (calc_annual_returns): Indice NON è DatetimeIndex, tentativo di conversione.")
-        try:
-            temp_index = pd.to_datetime(portfolio_values_series.index)
-            if isinstance(temp_index, pd.DatetimeIndex):
-                portfolio_values_series = portfolio_values_series.copy()
-                portfolio_values_series.index = temp_index
-                print(f"DEBUG (calc_annual_returns): Indice convertito a DatetimeIndex.")
-            else:
-                print("DEBUG (calc_annual_returns): Conversione indice fallita, tipo risultante:", type(temp_index))
-                return pd.Series(dtype=float, name="Rendimento Annuale (%)")
-        except Exception as e_conv:
-            print(f"DEBUG (calc_annual_returns): Eccezione conversione indice: {e_conv}")
-            return pd.Series(dtype=float, name="Rendimento Annuale (%)")
-
-    if len(portfolio_values_series.dropna()) < 2: # Necessari almeno 2 valori non-NaN
-        print(f"DEBUG (calc_annual_returns): Non abbastanza dati validi (non-NaN) nella serie: {len(portfolio_values_series.dropna())} valori.")
+# utils/performance.py
+def calculate_annual_returns(portfolio_values_series: pd.Series, 
+                             strategy_actual_end_date: pd.Timestamp = None) -> pd.Series:
+    if not isinstance(portfolio_values_series, pd.Series) or portfolio_values_series.empty or \
+       not isinstance(portfolio_values_series.index, pd.DatetimeIndex):
         return pd.Series(dtype=float, name="Rendimento Annuale (%)")
 
-    portfolio_values_series = portfolio_values_series.sort_index()
-    portfolio_values_series = portfolio_values_series[~portfolio_values_series.index.duplicated(keep='last')]
-    # print(f"DEBUG (calc_annual_returns): Serie dopo sort/drop_duplicates (prime 5): \n{portfolio_values_series.head()}")
+    # Lavora su una copia e assicurati che sia pulita e ordinata
+    pv_series = portfolio_values_series.copy().sort_index()
+    pv_series = pv_series[~pv_series.index.duplicated(keep='last')].dropna()
 
-    years = sorted(list(set(portfolio_values_series.index.year)))
+    if len(pv_series) < 2:
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    # Se strategy_actual_end_date è fornita, tronca la serie a quella data
+    if strategy_actual_end_date is not None:
+        pv_series = pv_series[pv_series.index <= strategy_actual_end_date]
+        if len(pv_series) < 2: # Controlla di nuovo dopo il troncamento
+             return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+
     annual_returns_list = []
-    print(f"DEBUG (calc_annual_returns): Anni identificati nella serie: {years}")
+    # Resample per ottenere l'ultimo valore di ogni anno E il primo valore assoluto della serie
+    year_ends = pv_series.resample('YE').last()
+    # Includi il primo valore della serie per il calcolo del primo anno parziale
+    # e l'ultimo valore della serie per l'ultimo anno parziale
+    
+    # Prepara i punti di valutazione: inizio della serie, tutti i fine anno, fine della serie
+    # Assicurati che siano unici e ordinati
+    evaluation_points = pd.concat([
+        pv_series.head(1), # Primo punto della serie
+        year_ends[year_ends.index > pv_series.index[0]], # Fine anno successivi al primo punto
+        pv_series.tail(1)  # Ultimo punto della serie
+    ]).sort_index()
+    evaluation_points = evaluation_points[~evaluation_points.index.duplicated(keep='last')]
 
-    if not years:
-        print("DEBUG (calc_annual_returns): Nessun anno identificato.")
+
+    if len(evaluation_points) < 2:
         return pd.Series(dtype=float, name="Rendimento Annuale (%)")
 
-    for year_idx, year in enumerate(years):
-        print(f"DEBUG (calc_annual_returns): Processing anno {year}")
-        
-        current_year_values = portfolio_values_series[portfolio_values_series.index.year == year]
-        if current_year_values.empty:
-            print(f"DEBUG (calc_annual_returns): Nessun dato per l'anno {year}.")
-            annual_returns_list.append({'Year': year, 'Return': np.nan}) # Aggiungi NaN per mantenere la struttura se necessario
-            continue
+    # Calcola i rendimenti tra i punti di valutazione
+    # Il rendimento per l'anno Y è (ValoreFineAnno_Y / ValoreFineAnno_Y-1) - 1
+    # Per il primo anno, è (ValoreFineAnno_Y1 / ValoreInizioSerie) - 1
+    # Per l'ultimo anno (parziale), è (ValoreFineSerie / ValoreFineAnno_Yn-1) - 1
+    
+    returns_calculated = {} # Usa un dizionario per evitare problemi con anni duplicati se la logica è complessa
 
-        # Valore di fine anno precedente (o primo valore della serie se è il primo anno)
-        if year_idx == 0: # Primo anno nella serie di dati fornita
-            initial_value_for_year_calc = current_year_values.iloc[0]
-            print(f"DEBUG (calc_annual_returns): Anno {year} (primo anno dati), initial_value: {initial_value_for_year_calc} (dal {current_year_values.index[0].date()})")
-        else:
-            previous_year = years[year_idx - 1] # Anno precedente nella nostra lista `years`
-            end_of_previous_year_series = portfolio_values_series[portfolio_values_series.index.year == previous_year]
-            if not end_of_previous_year_series.empty:
-                initial_value_for_year_calc = end_of_previous_year_series.iloc[-1]
-                print(f"DEBUG (calc_annual_returns): Anno {year}, initial_value (da fine {previous_year}): {initial_value_for_year_calc} (dal {end_of_previous_year_series.index[-1].date()})")
-            else:
-                # Questo caso è meno probabile se `years` è derivato dalla stessa serie,
-                # ma per sicurezza, se non ci sono dati per l'anno precedente, non possiamo calcolare.
-                print(f"DEBUG (calc_annual_returns): Anno {year}, nessun dato per anno precedente {previous_year}. Salto.")
-                annual_returns_list.append({'Year': year, 'Return': np.nan})
-                continue
-        
-        final_value_for_year_calc = current_year_values.iloc[-1]
-        print(f"DEBUG (calc_annual_returns): Anno {year}, final_value: {final_value_for_year_calc} (dal {current_year_values.index[-1].date()})")
+    # Rendimento del primo periodo (fino al primo fine anno o fine serie se più breve)
+    first_period_start_val = evaluation_points.iloc[0]
+    first_period_end_val = evaluation_points.iloc[1] if len(evaluation_points) > 1 else first_period_start_val
+    first_year = evaluation_points.index[0].year
+    
+    if pd.notna(first_period_start_val) and pd.notna(first_period_end_val) and not np.isclose(first_period_start_val, 0):
+        # Se il primo periodo finisce in un anno successivo, è un rendimento > 1 anno, non lo vogliamo per l'istogramma annuale.
+        # Vogliamo il rendimento per l'anno civile `first_year`.
+        # Valore a fine del `first_year` (o fine serie se prima)
+        val_at_end_of_first_year = pv_series[pv_series.index.year == first_year].iloc[-1]
+        if pd.notna(val_at_end_of_first_year):
+             returns_calculated[first_year] = (val_at_end_of_first_year / first_period_start_val - 1) * 100
 
-        if pd.notna(initial_value_for_year_calc) and pd.notna(final_value_for_year_calc) and not np.isclose(initial_value_for_year_calc, 0):
-            year_return = (final_value_for_year_calc / initial_value_for_year_calc) - 1
-            annual_returns_list.append({'Year': year, 'Return': year_return * 100})
-            print(f"DEBUG (calc_annual_returns): Anno {year}, Rendimento calcolato: {year_return * 100:.2f}%")
-        else:
-            annual_returns_list.append({'Year': year, 'Return': np.nan})
-            print(f"DEBUG (calc_annual_returns): Anno {year}, Rendimento NON calcolabile (initial: {initial_value_for_year_calc}, final: {final_value_for_year_calc}).")
+    # Rendimenti per anni civili completi intermedi
+    for i in range(1, len(evaluation_points) -1 ): # Escludi il primo e l'ultimo punto che sono già/saranno gestiti
+        year_val = evaluation_points.index[i].year
+        if year_val not in returns_calculated: # Evita di sovrascrivere se già calcolato per il primo anno
+            prev_year_end_val = evaluation_points.iloc[i-1]
+            current_year_end_val = evaluation_points.iloc[i]
+            if pd.notna(prev_year_end_val) and pd.notna(current_year_end_val) and not np.isclose(prev_year_end_val, 0):
+                returns_calculated[year_val] = (current_year_end_val / prev_year_end_val - 1) * 100
+    
+    # Rendimento dell'ultimo periodo (da inizio ultimo anno parziale o da fine anno precedente, a fine serie)
+    if len(evaluation_points) > 1 : # Se c'è più di un punto
+        last_year = evaluation_points.index[-1].year
+        if last_year not in returns_calculated: # Se non è stato già calcolato come anno completo
+            val_at_start_of_last_year_period = evaluation_points.iloc[-2] # Fine anno precedente o inizio serie
+            val_at_end_of_series = evaluation_points.iloc[-1]
+            if pd.notna(val_at_start_of_last_year_period) and pd.notna(val_at_end_of_series) and not np.isclose(val_at_start_of_last_year_period, 0):
+                 # Se l'ultimo punto è nello stesso anno del penultimo (cioè l'ultimo anno è parziale e il penultimo è un fine anno)
+                 if evaluation_points.index[-1].year == evaluation_points.index[-2].year and evaluation_points.index[-2].month == 12 and evaluation_points.index[-2].day == 31:
+                     pass # Già calcolato come anno intero
+                 else:
+                     returns_calculated[last_year] = (val_at_end_of_series / val_at_start_of_last_year_period - 1) * 100
 
-    if not annual_returns_list:
-        print("DEBUG (calc_annual_returns): Lista rendimenti annuali vuota.")
+
+    if not returns_calculated:
         return pd.Series(dtype=float, name="Rendimento Annuale (%)")
 
-    returns_df = pd.DataFrame(annual_returns_list).set_index('Year')['Return']
-    returns_df.name = "Rendimento Annuale (%)"
-    print(f"DEBUG (calc_annual_returns): Serie rendimenti annuali finali:\n{returns_df}")
-    return returns_df
+    final_returns_series = pd.Series(returns_calculated).sort_index()
+    final_returns_series.index.name = "Year"
+    final_returns_series.name = "Rendimento Annuale (%)"
+    return final_returns_series
