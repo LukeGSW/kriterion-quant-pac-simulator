@@ -208,7 +208,17 @@ if run_simulation_button:
         else: 
             metrics_display["XIRR"] = metrics_display["CAGR"] # Approssimazione per LS
         return metrics_display
-
+        # Dentro calculate_metrics_for_strategy, quando is_pac == True:
+if is_pac:
+    st.subheader("--- DEBUG: Dettagli Rendimenti Giornalieri PAC ---")
+    st.write("Primi 50 rendimenti giornalieri PAC:")
+    st.dataframe(returns_strat.head(50))
+    st.write("Ultimi 50 rendimenti giornalieri PAC:")
+    st.dataframe(returns_strat.tail(50))
+    st.write("Statistiche descrittive rendimenti giornalieri PAC:")
+    st.dataframe(returns_strat.describe())
+# ... poi calcola vol_strat ...
+st.write(f"--- DEBUG: Volatilità calcolata per {strategy_name}: {vol_strat} ---")
     metrics_pac_display = calculate_and_format_metrics(pac_total_df, "PAC", is_pac=True)
     df_for_table = pd.DataFrame.from_dict(metrics_pac_display, orient='index', columns=['PAC'])
     df_for_table.index.name = "Metrica"
