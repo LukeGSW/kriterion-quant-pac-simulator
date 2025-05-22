@@ -1,33 +1,108 @@
-# main.py (Test di Importazione Estremo)
+# simulatore_pac/main.py
 import streamlit as st
-import pandas as pd # Aggiungi per evitare errori se performance.py lo usa globalmente
-import numpy as np  # Aggiungi per evitare errori se performance.py lo usa globalmente
-from datetime import datetime, date # Aggiunto date
-from dateutil.relativedelta import relativedelta # Aggiunto se performance.py lo usa
+import pandas as pd
+import numpy as np
+from datetime import datetime, date, timedelta
 
-st.write("--- Tentativo di importare utils.performance ---")
+st.set_page_config(page_title="Simulatore PAC - Diagnosi Import", layout="wide")
+st.title("📘 Simulatore PAC - Diagnosi Import Moduli Utils")
+st.caption("Progetto Kriterion Quant")
+
 IMPORT_ERROR_MESSAGE = None
-try:
-    from utils.performance import calculate_annual_returns
-    st.write("--- `calculate_annual_returns` IMPORTATA CON SUCCESSO! ---")
-    
-    # Prova a importare anche un'altra funzione per vedere se il modulo è generalmente accessibile
-    from utils.performance import get_total_capital_invested
-    st.write("--- `get_total_capital_invested` IMPORTATA CON SUCCESSO! ---")
+IMPORT_SUCCESS = True # Assume successo finché non fallisce
 
+try:
+    st.write("Tentativo di importare `utils.data_loader.load_historical_data_yf`...")
+    from utils.data_loader import load_historical_data_yf
+    st.write("✅ `load_historical_data_yf` importato con successo.")
 except ImportError as e:
-    IMPORT_ERROR_MESSAGE = str(e)
-    st.error(f"IMPORTErrore: {IMPORT_ERROR_MESSAGE}")
-    st.error("Controllare che 'utils/performance.py' esista e non contenga errori di sintassi.")
-    st.error("Controllare che 'calculate_annual_returns' sia definita correttamente in 'utils/performance.py'.")
-    import traceback
-    st.text(traceback.format_exc())
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = f"data_loader: {e}"
+    st.error(f"Errore importando load_historical_data_yf: {e}")
+except Exception as e_gen:
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = f"data_loader (generico): {e_gen}"
+    st.error(f"Eccezione generica importando da data_loader: {e_gen}")
+
+try:
+    st.write("Tentativo di importare `utils.pac_engine.run_pac_simulation`...")
+    from utils.pac_engine import run_pac_simulation
+    st.write("✅ `run_pac_simulation` importato con successo.")
+except ImportError as e:
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = (IMPORT_ERROR_MESSAGE + "; " if IMPORT_ERROR_MESSAGE else "") + f"pac_engine: {e}"
+    st.error(f"Errore importando run_pac_simulation: {e}")
+except Exception as e_gen:
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = (IMPORT_ERROR_MESSAGE + "; " if IMPORT_ERROR_MESSAGE else "") + f"pac_engine (generico): {e_gen}"
+    st.error(f"Eccezione generica importando da pac_engine: {e_gen}")
+
+
+try:
+    st.write("Tentativo di importare `utils.benchmark_engine.run_lump_sum_simulation`...")
+    from utils.benchmark_engine import run_lump_sum_simulation
+    st.write("✅ `run_lump_sum_simulation` importato con successo.")
+except ImportError as e:
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = (IMPORT_ERROR_MESSAGE + "; " if IMPORT_ERROR_MESSAGE else "") + f"benchmark_engine: {e}"
+    st.error(f"Errore importando run_lump_sum_simulation: {e}")
+except Exception as e_gen:
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = (IMPORT_ERROR_MESSAGE + "; " if IMPORT_ERROR_MESSAGE else "") + f"benchmark_engine (generico): {e_gen}"
+    st.error(f"Eccezione generica importando da benchmark_engine: {e_gen}")
+
+
+try:
+    st.write("Tentativo di importare funzioni da `utils.performance`...")
+    from utils.performance import (
+        get_total_capital_invested, get_final_portfolio_value,
+        calculate_total_return_percentage, calculate_cagr, get_duration_years,
+        calculate_portfolio_returns, calculate_annualized_volatility,
+        calculate_sharpe_ratio, calculate_max_drawdown, calculate_drawdown_series,
+        generate_cash_flows_for_xirr, calculate_xirr_metric,
+        calculate_annual_returns, # Assicurati che questa sia definita in performance.py
+        get_final_asset_details, calculate_wap_for_assets
+        # Non importare le funzioni di rolling metrics per ora
+    )
+    st.write("✅ Funzioni da `utils.performance` importate con successo.")
+except ImportError as e:
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = (IMPORT_ERROR_MESSAGE + "; " if IMPORT_ERROR_MESSAGE else "") + f"performance: {e}"
+    st.error(f"Errore importando da utils.performance: {e}")
+    st.error(f"Verifica che TUTTE le funzioni elencate (inclusa calculate_annual_returns) siano definite in utils/performance.py")
+except Exception as e_gen:
+    IMPORT_SUCCESS = False
+    IMPORT_ERROR_MESSAGE = (IMPORT_ERROR_MESSAGE + "; " if IMPORT_ERROR_MESSAGE else "") + f"performance (generico): {e_gen}"
+    st.error(f"Eccezione generica importando da performance: {e_gen}")
+
+
+if not IMPORT_SUCCESS:
+    st.subheader("Diagnosi Problemi di Importazione:")
+    st.error(f"Uno o più moduli `utils` non sono stati importati correttamente. Messaggio accumulato: {IMPORT_ERROR_MESSAGE}")
+    st.error("Possibili cause:")
+    st.markdown("""
+    - Errore di sintassi (`SyntaxError` o `IndentationError`) in uno dei file `.py` dentro la cartella `utils`.
+    - Un nome di funzione o file è stato digitato in modo errato nell'istruzione `import`.
+    - Il file `utils/__init__.py` è mancante (deve esistere, anche se vuoto).
+    - Problemi con le dipendenze interne dei moduli utils (meno probabile se i file sono quelli forniti).
+    Controlla i log di Streamlit Cloud per traceback più dettagliati se l'errore di importazione non è chiaro qui.
+    L'esecuzione dello script principale è interrotta.
+    """)
     st.stop()
-except Exception as e_other:
-    st.error(f"Altra eccezione durante l'importazione: {e_other}")
-    import traceback
-    st.text(traceback.format_exc())
-    st.stop()
+
+# --- Se tutti gli import hanno successo, il resto del main.py (commentato per ora) ---
+st.success("Tutti i moduli utils sono stati importati con successo!")
+st.info("Lo script principale è stato interrotto dopo il test di importazione. Decommenta il resto di main.py per continuare.")
+
+# IL RESTO DEL TUO main.py (sidebar, logica di simulazione, grafici, ecc.)
+# VA QUI, MA PER ORA È COMMENTATO PER ISOLARE IL PROBLEMA DI IMPORTAZIONE.
+# Se vedi "Tutti i moduli utils sono stati importati con successo!",
+# allora il problema di NameError risiede nel codice SUCCESSIVO a questo blocco di test.
+# Altrimenti, l'errore stampato sopra ti dirà quale importazione sta fallendo.
+
+# Esempio di come potrebbe continuare:
+# st.sidebar.header("Parametri Simulazione")
+# ... (tutta la tua UI e logica principale) ...
 
 # Se l'importazione ha successo, il resto dell'app non verrà eseguito in questa modalità di test.
 # Puoi decommentare il resto del tuo main.py una volta che l'importazione funziona.
