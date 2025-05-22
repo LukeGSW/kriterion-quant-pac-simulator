@@ -1,38 +1,41 @@
-# simulatore_pac/main.py
+# main.py (Test di Importazione Estremo)
 import streamlit as st
-import pandas as pd
-import numpy as np
-from datetime import datetime, date, timedelta
+import pandas as pd # Aggiungi per evitare errori se performance.py lo usa globalmente
+import numpy as np  # Aggiungi per evitare errori se performance.py lo usa globalmente
+from datetime import datetime, date # Aggiunto date
+from dateutil.relativedelta import relativedelta # Aggiunto se performance.py lo usa
 
-# Importazioni dai moduli utils
+st.write("--- Tentativo di importare utils.performance ---")
+IMPORT_ERROR_MESSAGE = None
 try:
-    from utils.data_loader import load_historical_data_yf
-    from utils.pac_engine import run_pac_simulation
-    from utils.benchmark_engine import run_lump_sum_simulation
-    from utils.performance import (
-        get_total_capital_invested, get_final_portfolio_value,
-        calculate_total_return_percentage, calculate_cagr, get_duration_years,
-        calculate_portfolio_returns, calculate_annualized_volatility,
-        calculate_sharpe_ratio, calculate_max_drawdown, calculate_drawdown_series,
-        generate_cash_flows_for_xirr, calculate_xirr_metric,
-        calculate_annual_returns, # <--- ASSICURATI CHE QUESTA RIGA SIA PRESENTE E NON COMMENTATA
-        get_final_asset_details, calculate_wap_for_assets 
-        # Rimosse: calculate_rolling_volatility, calculate_rolling_sharpe_ratio, calculate_rolling_cagr
-    )
-    IMPORT_SUCCESS = True
-except ImportError as import_err:
-    IMPORT_SUCCESS = False
-    IMPORT_ERROR_MESSAGE = str(import_err)
+    from utils.performance import calculate_annual_returns
+    st.write("--- `calculate_annual_returns` IMPORTATA CON SUCCESSO! ---")
+    
+    # Prova a importare anche un'altra funzione per vedere se il modulo è generalmente accessibile
+    from utils.performance import get_total_capital_invested
+    st.write("--- `get_total_capital_invested` IMPORTATA CON SUCCESSO! ---")
 
-# ... il resto del tuo main.py ...
-
-st.set_page_config(page_title="Simulatore PAC Core V2", layout="wide")
-st.title("📘 Simulatore PAC Core V2")
-st.caption("Progetto Kriterion Quant - Sharpe PAC con tutti i rendimenti, Volatilità PAC nascosta")
-
-if not IMPORT_SUCCESS:
-    st.error(f"Errore critico durante l'importazione dei moduli utils: {IMPORT_ERROR_MESSAGE}")
+except ImportError as e:
+    IMPORT_ERROR_MESSAGE = str(e)
+    st.error(f"IMPORTErrore: {IMPORT_ERROR_MESSAGE}")
+    st.error("Controllare che 'utils/performance.py' esista e non contenga errori di sintassi.")
+    st.error("Controllare che 'calculate_annual_returns' sia definita correttamente in 'utils/performance.py'.")
+    import traceback
+    st.text(traceback.format_exc())
     st.stop()
+except Exception as e_other:
+    st.error(f"Altra eccezione durante l'importazione: {e_other}")
+    import traceback
+    st.text(traceback.format_exc())
+    st.stop()
+
+# Se l'importazione ha successo, il resto dell'app non verrà eseguito in questa modalità di test.
+# Puoi decommentare il resto del tuo main.py una volta che l'importazione funziona.
+
+# Il resto del tuo main.py (commentato per ora per questo test)
+# st.set_page_config(...)
+# st.title(...)
+# ... e così via ...
 
 # --- Sidebar per Input Utente ---
 st.sidebar.header("Parametri Simulazione")
