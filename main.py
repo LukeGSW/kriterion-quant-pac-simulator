@@ -378,7 +378,7 @@ if run_simulation_button:
             )
            # In main.py, dopo la chiamata a generate_pac_report_pdf
 
-                pdf_bytes = generate_pac_report_pdf(
+            pdf_bytes = generate_pac_report_pdf(
                     # ... tutti i parametri ...
                 )
                 
