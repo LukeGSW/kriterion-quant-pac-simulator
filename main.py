@@ -254,8 +254,9 @@ if run_simulation_button:
             table_data_wap.append({"Ticker": ticker_wap, "Quote Finali": f"{asset_info['shares']:.4f}", "Capitale Investito (Asset)": f"{asset_info['capital_invested']:,.2f}", "Prezzo Medio Carico (WAP)": f"{wap_map.get(ticker_wap, np.nan):,.2f}" if pd.notna(wap_map.get(ticker_wap, np.nan)) else "N/A"})
         if table_data_wap: st.table(pd.DataFrame(table_data_wap).set_index("Ticker"))
     
-    # --- SEZIONE DOWNLOAD DATI ---
     # In main.py, all'interno del blocco "if run_simulation_button:" 
+# e dopo la visualizzazione delle tabelle e grafici esistenti.
+# In main.py, all'interno del blocco "if run_simulation_button:" 
 # e dopo la visualizzazione delle tabelle e grafici esistenti.
 
             # --- SEZIONE DOWNLOAD DATI (CSV come prima) ---
@@ -355,5 +356,5 @@ if run_simulation_button:
                 st.write(f"--- DEBUG (PDF): Condizione `if not pac_total_df.empty and df_for_table_exists_and_not_empty` NON soddisfatta. ---")
 
             # --- FINE SEZIONE DOWNLOAD DATI ---
-
+  
 st.sidebar.markdown("---"); st.sidebar.markdown("Kriterion Quant")
