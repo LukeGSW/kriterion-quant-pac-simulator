@@ -219,7 +219,7 @@ else:
     st.info("Inserisci parametri e avvia simulazione.")
 # In main.py, all'interno della definizione della sidebar
 
-run_simulation_button = st.sidebar.button("🚀 Avvia Simulazioni", key="ui_run_button_final")
+
 
 # --- MINI GUIDA ---
 st.sidebar.markdown("---") # Separatore
