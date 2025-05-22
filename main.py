@@ -217,5 +217,24 @@ if run_simulation_button:
         if table_data_wap: st.table(pd.DataFrame(table_data_wap).set_index("Ticker"))
 else: 
     st.info("Inserisci parametri e avvia simulazione.")
+# In main.py, all'interno della definizione della sidebar
 
+run_simulation_button = st.sidebar.button("🚀 Avvia Simulazioni", key="ui_run_button_final")
+
+# --- MINI GUIDA ---
+st.sidebar.markdown("---") # Separatore
+st.sidebar.subheader("Guida Rapida")
+st.sidebar.caption(
+    "1. **Inserisci i Ticker**: Specifica uno o più simboli di strumenti finanziari (es. AAPL, GOOG per azioni USA; "
+    "ISP.MI per Borsa Italiana; VWCE.DE per ETF su Xetra) separati da virgola.\n"
+    "2. **Definisci le Allocazioni**: Inserisci le percentuali per ciascun ticker, separate da virgola. La somma deve fare 100%.\n"
+    "3. **Imposta i Parametri PAC**: Definisci l'importo del versamento mensile, la data di inizio dei contributi e la loro durata in mesi.\n"
+    "4. **Opzioni Avanzate**: Scegli se reinvestire i dividendi e se attivare il ribilanciamento periodico per la strategia PAC.\n"
+    "5. **Metriche**: Imposta il tasso risk-free per il calcolo dello Sharpe Ratio.\n"
+    "6. **Avvia**: Clicca 'Avvia Simulazioni' per visualizzare i risultati e i grafici comparativi."
+)
+# --- FINE MINI GUIDA ---
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("Progetto Kriterion Quant")
 st.sidebar.markdown("---"); st.sidebar.markdown("Kriterion Quant")
