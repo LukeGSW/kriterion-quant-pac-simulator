@@ -30,7 +30,7 @@ except ImportError as import_err:
 
 # --- DEFINIZIONE PRESET DI DEFAULT ---
 PRESET_DEFAULT = {
-    "tickers_str": "SWDA.L,SXRV.DE,PPFB.DE,BTC-USD",
+    "tickers_str": "SWDA.L,SXRV.DE,8PSG.DE,BTC-USD",
     "allocations_str": "60,25,10,5",
     "monthly_inv": 1000.0,
     "start_date_contrib": date(2015, 1, 1),
@@ -42,7 +42,7 @@ PRESET_DEFAULT = {
     "csv_files": { # Questi sono per la logica di caching che implementeremo dopo
         "SWDA.L": "SWDA.L_preset.csv",
         "SXRV.DE": "SXRV.DE_preset.csv",
-        "PPFB.DE": "PPFB.DE_preset.csv",
+        "8PSG.DE": "8PSG.DE_preset.csv",
         "BTC-USD": "BTC-USD_preset.csv"
     }
 }
