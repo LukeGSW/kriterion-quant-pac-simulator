@@ -1,4 +1,4 @@
-# utils/data_loader.py (Versione Rollback Semplificata e con Debug)
+# simulatore_pac/utils/data_loader.py
 
 import pandas as pd
 import yfinance as yf
@@ -13,15 +13,23 @@ def load_historical_data_yf(ticker: str, start_date: str, end_date: str = None) 
     history_df = pd.DataFrame() 
     try:
         stock_ticker = yf.Ticker(ticker)
-        history_df = stock_ticker.history(start=start_date, end=end_date, auto_adjust=False, progress=False)
+        print(f"DEBUG (data_loader): Oggetto Ticker creato per {ticker}. Chiamata a .history(start='{start_date}', end='{end_date}')...")
+        
+        try:
+            # RIMOSSO progress=False
+            history_df = stock_ticker.history(start=start_date, end=end_date, auto_adjust=False) 
+        except Exception as e_history:
+            print(f"ERRORE (data_loader): Eccezione DURANTE stock_ticker.history() per {ticker}: {e_history}")
+            import traceback
+            traceback.print_exc() 
+            return pd.DataFrame()
 
         if history_df.empty:
-            print(f"ATTENZIONE (data_loader): yfinance ha restituito DataFrame VUOTO per {ticker} ({start_date} to {end_date}).")
-            # Aggiungiamo un piccolo tentativo di recupero info se history è vuota
+            print(f"ATTENZIONE (data_loader): yfinance HA RESTITUITO DataFrame VUOTO per {ticker} ({start_date} to {end_date}).")
             try:
                 info = stock_ticker.info
-                if not info or 'regularMarketPrice' not in info : # Controlla se info è vuota o manca un campo chiave
-                    print(f"DEBUG (data_loader): stock_ticker.info per {ticker} è vuota o incompleta. Possibile ticker non valido o delistato.")
+                if not info or 'regularMarketPrice' not in info : 
+                    print(f"DEBUG (data_loader): stock_ticker.info per {ticker} è vuota o incompleta.")
                 else:
                     print(f"DEBUG (data_loader): stock_ticker.info per {ticker} recuperata, ma history è vuota. Info: { {k: info[k] for k in ['symbol', 'shortName', 'exchange', 'marketState'] if k in info} }")
             except Exception as e_info:
@@ -35,7 +43,6 @@ def load_historical_data_yf(ticker: str, start_date: str, end_date: str = None) 
         
         required_cols = ['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume', 'Dividends']
         final_df = pd.DataFrame(index=history_df.index)
-
         for col in required_cols:
             if col in history_df.columns:
                 final_df[col] = history_df[col]
@@ -54,7 +61,6 @@ def load_historical_data_yf(ticker: str, start_date: str, end_date: str = None) 
         elif 'Dividend' not in final_df.columns: 
             final_df['Dividend'] = 0.0
             
-        # Rimuovi righe dove Adj Close è NaN o <= 0 solo DOPO aver verificato la presenza della colonna
         if 'Adj Close' in final_df.columns:
             final_df.dropna(subset=['Adj Close'], inplace=True)
             final_df = final_df[final_df['Adj Close'] > 1e-6] 
@@ -68,8 +74,7 @@ def load_historical_data_yf(ticker: str, start_date: str, end_date: str = None) 
     except Exception as e:
         print(f"ERRORE CRITICO in load_historical_data_yf per {ticker} ({start_date}-{end_date}): {e}")
         import traceback
-        # Per Streamlit Cloud, il traceback completo nei log è utile
-        print("--- TRACEBACK ECCEZIONE DATA_LOADER ---")
+        print("--- TRACEBACK ECCEZIONE DATA_LOADER (generale) ---")
         traceback.print_exc()
-        print("--- FINE TRACEBACK ECCEZIONE DATA_LOADER ---")
+        print("--- FINE TRACEBACK ECCEZIONE DATA_LOADER (generale) ---")
         return pd.DataFrame()
