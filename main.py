@@ -378,9 +378,7 @@ if run_simulation_button:
             )
            # In main.py, dopo la chiamata a generate_pac_report_pdf
 
-            pdf_bytes = generate_pac_report_pdf(
-                    # ... tutti i parametri ...
-                )
+
                 
                 # --- CHIUDI LE FIGURE MATPLOTLIB PER LIBERARE MEMORIA ---
         if equity_fig_mpl: plt.close(equity_fig_mpl)
