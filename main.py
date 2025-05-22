@@ -237,4 +237,4 @@ st.sidebar.caption(
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("Progetto Kriterion Quant")
-st.sidebar.markdown("---"); st.sidebar.markdown("Kriterion Quant")
+st.sidebar.markdown("---")
