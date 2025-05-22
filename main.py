@@ -241,21 +241,34 @@ if run_simulation_button:
     else: st.warning("Indice base per grafici non creato, grafico drawdown saltato.")
 
 # In main.py
+# In main.py
 
-   st.subheader("Istogramma Rendimenti Annuali (%)")
+        # --- ISTOGRAMMA RENDIMENTI ANNUALI ---
+        st.subheader("Istogramma Rendimenti Annuali (%)")
+        data_for_annual_hist = {}
+        if not pac_total_df.empty and 'PortfolioValue' in pac_total_df.columns and 'Date' in pac_total_df.columns:
+            pac_pv_ah = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
+            annual_returns_pac = calculate_annual_returns(pac_pv_ah) # Questa funzione ora restituisce una Serie con l'anno come indice
+            if not annual_returns_pac.empty:
+                # ar_pac.index = annual_returns_pac.index.year # <-- RIMUOVI QUESTA RIGA
+                data_for_annual_hist["PAC"] = annual_returns_pac # L'indice è già l'anno
 
-    # --- ROLLING METRICS ---
-    st.subheader(f"Analisi Rolling Metrics per PAC (Finestra: {rolling_window_months_input} mesi)")
-    # ... (codice come prima) ...
-    if not pac_total_df.empty:
-        pac_pv_rm = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
-        pac_dr_rm = calculate_portfolio_returns(pac_total_df.copy()) 
-        roll_win_days = rolling_window_months_input * 21 
-        st.write(f"--- DEBUG Rolling: DailyReturns len: {len(pac_dr_rm)}, WindowDays: {roll_win_days} ---")
-        if len(pac_dr_rm) >= roll_win_days and len(pac_pv_rm) >= roll_win_days:
-            # ... (chiamate a calculate_rolling_... e st.line_chart)
-            st.write("--- DEBUG: Grafici Rolling VISUALIZZATI (se dati non vuoti) ---")
-        else: st.warning(f"Dati insuff. per rolling metrics ({len(pac_dr_rm)} gg rend.) con finestra {rolling_window_months_input} mesi.")
+        if not lump_sum_df.empty and 'PortfolioValue' in lump_sum_df.columns and 'Date' in lump_sum_df.columns:
+            ls_pv_ah = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']
+            annual_returns_ls = calculate_annual_returns(ls_pv_ah) # Anche qui l'indice è l'anno
+            if not annual_returns_ls.empty:
+                # annual_returns_ls.index = annual_returns_ls.index.year # <-- RIMUOVI QUESTA RIGA
+                data_for_annual_hist["Lump Sum"] = annual_returns_ls
+        
+        if data_for_annual_hist:
+            annual_hist_df = pd.DataFrame(data_for_annual_hist).dropna(how='all')
+            if not annual_hist_df.empty:
+                st.bar_chart(annual_hist_df)
+                st.write("--- DEBUG: Istogramma Rend. Ann. VISUALIZZATO ---")
+            else:
+                st.warning("Dati per Istogramma Rend. Ann. vuoti dopo dropna.")
+        else:
+            st.warning("Dati insuff. per Istogramma Rend. Ann.")
 
 
     # --- STACKED AREA CHART & TABELLE QUOTE/WAP ---
