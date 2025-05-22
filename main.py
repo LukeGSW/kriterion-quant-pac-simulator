@@ -17,7 +17,7 @@ try:
         generate_cash_flows_for_xirr, calculate_xirr_metric,
         # calculate_annual_returns, # RIMOSSO
         get_final_asset_details, calculate_wap_for_assets
-        # RIMOSSE: calculate_rolling_volatility, calculate_rolling_sharpe_ratio, calculate_rolling_cagr
+        calculate_tracking_error # NUOVA IMPORTAZIONE
     )
     IMPORT_SUCCESS = True
 except ImportError as import_err:
@@ -109,50 +109,111 @@ if run_simulation_button:
     st.success("Simulazioni OK. Elaborazione output.")
 
     # --- FUNZIONE HELPER PER METRICHE (invariata dalla tua ultima versione funzionante che nasconde Vol PAC) ---
-    def calculate_and_format_metrics(sim_df, strategy_name, total_invested_override=None, is_pac=False):
-        # ... (COPIA QUI LA TUA ULTIMA VERSIONE FUNZIONANTE di calculate_and_format_metrics)
+    # --- FUNZIONE HELPER PER METRICHE (MODIFICATA) ---
+    def calculate_and_format_metrics(sim_df, strategy_name, 
+                                     total_invested_override=None, 
+                                     is_pac=False, 
+                                     benchmark_returns_for_te=None): # Nuovo parametro per TE
         metrics_display = {}
+        # Aggiungiamo "Tracking Error" alle chiavi se è un PAC e ha un benchmark
         keys_ordered_pac = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", "Sharpe", "Max Drawdown"]
+        if is_pac and benchmark_returns_for_te is not None:
+            keys_ordered_pac.append("Tracking Error (vs LS)")
+            
         keys_ordered_ls = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", "Volatilità Ann.", "Sharpe", "Max Drawdown"]
+        
         current_keys = keys_ordered_pac if is_pac else keys_ordered_ls
         for k in current_keys: metrics_display[k] = "N/A"
-        if sim_df.empty or 'PortfolioValue' not in sim_df.columns or len(sim_df) < 2: return metrics_display
+
+        if sim_df.empty or 'PortfolioValue' not in sim_df.columns or len(sim_df) < 2: 
+            return metrics_display
+        
+        # ... (calcolo di actual_total_invested, final_portfolio_val, rend_tot, cagr_strat come prima) ...
         actual_total_invested = total_invested_override if total_invested_override is not None else get_total_capital_invested(sim_df)
         metrics_display["Capitale Investito"] = f"{actual_total_invested:,.2f}"; final_portfolio_val = get_final_portfolio_value(sim_df)
         metrics_display["Valore Finale"] = f"{final_portfolio_val:,.2f}"; rend_tot = calculate_total_return_percentage(final_portfolio_val, actual_total_invested)
         metrics_display["Rend. Totale"] = f"{rend_tot:.2f}%" if pd.notna(rend_tot) else "N/A"
         duration_yrs_strat = get_duration_years(sim_df.copy()); cagr_strat = calculate_cagr(final_portfolio_val, actual_total_invested, duration_yrs_strat)
         metrics_display["CAGR"] = f"{cagr_strat:.2f}%" if pd.notna(cagr_strat) else "N/A"
+
         returns_strat = calculate_portfolio_returns(sim_df.copy())
-        vol_strat_numeric = calculate_annualized_volatility(returns_strat) # Calcola sempre
-        if not is_pac: metrics_display["Volatilità Ann."] = f"{vol_strat_numeric:.2f}%" if pd.notna(vol_strat_numeric) else "N/A"
+        
+        vol_strat_numeric = calculate_annualized_volatility(returns_strat)
+        if not is_pac: 
+            metrics_display["Volatilità Ann."] = f"{vol_strat_numeric:.2f}%" if pd.notna(vol_strat_numeric) else "N/A"
+        
         sharpe_strat = calculate_sharpe_ratio(returns_strat, risk_free_rate_annual=(risk_free_rate_input/100.0))
         metrics_display["Sharpe"] = f"{sharpe_strat:.2f}" if pd.notna(sharpe_strat) else "N/A"
+        
         mdd_strat = calculate_max_drawdown(sim_df.copy())
         metrics_display["Max Drawdown"] = f"{mdd_strat:.2f}%" if pd.notna(mdd_strat) else "N/A"
+
         if is_pac:
             xirr_dates, xirr_values = generate_cash_flows_for_xirr(sim_df, pac_contribution_start_str, duration_months_contributions_input, monthly_investment_input, final_portfolio_val)
-            xirr_val = calculate_xirr_metric(xirr_dates, xirr_values); metrics_display["XIRR"] = f"{xirr_val:.2f}%" if pd.notna(xirr_val) else "N/A"
-        else: metrics_display["XIRR"] = metrics_display["CAGR"] 
+            xirr_val = calculate_xirr_metric(xirr_dates, xirr_values)
+            metrics_display["XIRR"] = f"{xirr_val:.2f}%" if pd.notna(xirr_val) else "N/A"
+            
+            # Calcola Tracking Error per PAC se benchmark_returns sono forniti
+            if benchmark_returns_for_te is not None and not benchmark_returns_for_te.empty:
+                te_strat = calculate_tracking_error(returns_strat, benchmark_returns_for_te)
+                metrics_display["Tracking Error (vs LS)"] = f"{te_strat:.2f}%" if pd.notna(te_strat) else "N/A"
+            elif "Tracking Error (vs LS)" in metrics_display: # Assicura che sia N/A se non calcolabile
+                metrics_display["Tracking Error (vs LS)"] = "N/A"
+
+        else: # Per Lump Sum
+            metrics_display["XIRR"] = metrics_display["CAGR"] 
+            # Il Tracking Error per LS rispetto a se stesso non ha senso, quindi non lo calcoliamo qui.
+            # Se volessimo TE di LS vs un altro benchmark, la logica cambierebbe.
         return metrics_display
-        
-    metrics_pac_display = calculate_and_format_metrics(pac_total_df, "PAC", is_pac=True)
-    # ... (Logica per costruire e visualizzare df_for_table come prima, assicurandoti che gestisca l'assenza di Volatilità Ann. per PAC)
-    table_structure = {"Metrica": list(metrics_pac_display.keys()), "PAC": list(metrics_pac_display.values())}
+
+    # Calcola i rendimenti giornalieri del Lump Sum per il Tracking Error del PAC
+    ls_daily_returns_for_te = pd.Series(dtype=float)
     if not lump_sum_df.empty:
-        metrics_ls_display = calculate_and_format_metrics(lump_sum_df, "Lump Sum", total_invested_override=get_total_capital_invested(pac_total_df), is_pac=False)
-        ls_column_values = [metrics_ls_display.get(key, "N/A") for key in metrics_pac_display.keys()]
-        table_structure["Lump Sum"] = ls_column_values
-        if "Volatilità Ann." in metrics_ls_display and "Volatilità Ann." not in table_structure["Metrica"]:
-            table_structure["Metrica"].append("Volatilità Ann.")
-            table_structure["PAC"].append("N/A") 
-            table_structure["Lump Sum"].append(metrics_ls_display["Volatilità Ann."])
-    df_for_table = pd.DataFrame(table_structure).set_index("Metrica")
-    desired_order = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", "Volatilità Ann.", "Sharpe", "Max Drawdown"]
-    ordered_index = [label for label in desired_order if label in df_for_table.index]
-    df_for_table = df_for_table.reindex(ordered_index)
+        ls_daily_returns_for_te = calculate_portfolio_returns(lump_sum_df.copy())
+
+    metrics_pac_display = calculate_and_format_metrics(pac_total_df, "PAC", is_pac=True, benchmark_returns_for_te=ls_daily_returns_for_te)
+    
+    # Aggiorna l'ordine desiderato delle metriche per includere Tracking Error
+    desired_ordered_metrics = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", 
+                               "Volatilità Ann.", "Sharpe", "Max Drawdown", "Tracking Error (vs LS)"]
+    
+    # Costruisci la tabella
+    df_for_table = pd.DataFrame(index=desired_ordered_metrics)
+    df_for_table["PAC"] = df_for_table.index.map(metrics_pac_display).fillna("N/A")
+
+    if not lump_sum_df.empty:
+        total_invested_val_pac = get_total_capital_invested(pac_total_df)
+        metrics_ls_display = calculate_and_format_metrics(lump_sum_df, "Lump Sum", total_invested_override=total_invested_val_pac, is_pac=False)
+        df_for_table["Lump Sum"] = df_for_table.index.map(metrics_ls_display).fillna("N/A")
+    
+    # Rimuovi la riga "Tracking Error (vs LS)" se la colonna "Lump Sum" non esiste (non dovrebbe accadere se PAC esiste)
+    # o se il valore per PAC è N/A e non c'è Lump Sum
+    if "Lump Sum" not in df_for_table.columns and "Tracking Error (vs LS)" in df_for_table.index:
+         df_for_table.drop("Tracking Error (vs LS)", inplace=True)
+    elif "Tracking Error (vs LS)" in df_for_table.index and df_for_table.loc["Tracking Error (vs LS)", "PAC"] == "N/A":
+         # Se non c'è LS, non ha senso mostrare TE del PAC vs LS
+         if "Lump Sum" not in df_for_table.columns:
+             df_for_table.drop("Tracking Error (vs LS)", inplace=True)
+
+
+    # Assicurati che la riga "Volatilità Ann." esista e sia N/A per PAC se non già gestito
+    if "Volatilità Ann." in df_for_table.index:
+        if "PAC" in df_for_table.columns and df_for_table.loc["Volatilità Ann.", "PAC"] != "N/A": # Evita di sovrascrivere se già N/A
+            if metrics_pac_display.get("Volatilità Ann.", "N/A") == "N/A": # Controlla se era inteso come N/A
+                 df_for_table.loc["Volatilità Ann.", "PAC"] = "N/A"
+    elif "Lump Sum" in df_for_table.columns and metrics_ls_display.get("Volatilità Ann.") != "N/A": # Aggiungi riga Volatilità se LS ce l'ha e la riga manca
+        df_for_table.loc["Volatilità Ann.", "Lump Sum"] = metrics_ls_display.get("Volatilità Ann.")
+        df_for_table.loc["Volatilità Ann.", "PAC"] = "N/A"
+
+
+    # Filtra per le righe effettivamente presenti in df_for_table per evitare errori se una metrica manca per tutti
+    final_ordered_index = [label for label in desired_ordered_metrics if label in df_for_table.index]
+    df_for_table = df_for_table.reindex(final_ordered_index).fillna("N/A")
+
+
     st.subheader("Metriche di Performance Riepilogative")
-    if not df_for_table.empty: st.table(df_for_table.fillna("N/A"))
+    if not df_for_table.empty: 
+        st.table(df_for_table)
 
 
     # --- GRAFICO EQUITY LINE ESTESO (Logica invariata) ---
