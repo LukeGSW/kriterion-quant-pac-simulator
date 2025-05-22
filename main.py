@@ -386,12 +386,12 @@ if run_simulation_button:
             if stacked_area_fig_mpl: plt.close(stacked_area_fig_mpl)
                 # --- FINE CHIUSURA FIGURE ---
                 
-        st.download_button(
-            label="Scarica Report PDF Completo", # Etichetta aggiornata
-            data=pdf_bytes,
-            file_name=f"report_pac_{'_'.join(tickers_list)}.pdf",
-            mime='application/pdf',
-            key='dl_report_pdf_v9' # Chiave aggiornata
+            st.download_button(
+                label="Scarica Report PDF Completo", # Etichetta aggiornata
+                data=pdf_bytes,
+                file_name=f"report_pac_{'_'.join(tickers_list)}.pdf",
+                mime='application/pdf',
+                key='dl_report_pdf_v9' # Chiave aggiornata
                 )
         except Exception as e_pdf:
             st.warning(f"Impossibile generare il report PDF: {e_pdf}")
