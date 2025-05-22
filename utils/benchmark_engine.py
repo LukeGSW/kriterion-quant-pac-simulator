@@ -2,146 +2,142 @@
 
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
+from datetime import datetime, timedelta # timedelta non è usata qui, ma può rimanere
+from dateutil.relativedelta import relativedelta # non usata qui, ma può rimanere
 
 def run_lump_sum_simulation(
     historical_data_map: dict[str, pd.DataFrame],
     tickers: list[str],
     allocations: list[float], # Allocazioni target per il portafoglio Lump Sum
     total_investment_lump_sum: float,
-    lump_sum_investment_date: pd.Timestamp, # Data effettiva (già pd.Timestamp)
-    simulation_start_date: pd.Timestamp, # Data da cui iniziare a tracciare l'equity line
-    simulation_end_date: pd.Timestamp,   # Data fine per l'equity line
+    lump_sum_investment_date: pd.Timestamp, # Data effettiva dell'investimento LS (già pd.Timestamp)
+    # simulation_start_date_tracking: pd.Timestamp, # Data da cui iniziare a TRACCIARE l'equity line
+    # simulation_end_date_tracking: pd.Timestamp,   # Data fine per TRACCIARE l'equity line
+    # I parametri sopra sono ora implicitamente gestiti dal range di historical_data_map
     reinvest_dividends: bool = True
 ) -> pd.DataFrame:
     """
     Simula un investimento Lump Sum e ne traccia l'evoluzione.
+    La simulazione si estenderà per tutto il periodo coperto da historical_data_map[tickers[0]]
+    a partire da lump_sum_investment_date (o la prima data di trading successiva).
     """
-    if not tickers or not historical_data_map:
-        print("ERRORE (Lump Sum): Lista ticker o dati storici mancanti.")
+    if not (isinstance(historical_data_map, dict) and historical_data_map and tickers):
+        # print("DEBUG (LS_engine): Mappa dati storici vuota o tickers mancanti.")
         return pd.DataFrame()
-
-    # Inizializzazione stato portafoglio per ogni asset
+    if not all(ticker in historical_data_map for ticker in tickers):
+        # print("DEBUG (LS_engine): Dati storici mancanti per alcuni ticker in mappa.")
+        return pd.DataFrame()
+    if total_investment_lump_sum <= 0:
+        # print("DEBUG (LS_engine): Importo investimento Lump Sum non positivo.")
+        return pd.DataFrame()
+        
     portfolio_ls_details = {
         ticker: {'shares_owned': 0.0, 'dividends_cumulative_asset': 0.0, 'current_value': 0.0}
         for ticker in tickers
     }
     total_dividends_received_overall_ls = 0.0
     lump_sum_evolution_records = []
+    actual_capital_invested_ls = 0.0 # Capitale effettivamente investito (potrebbe essere < total_investment_lump_sum se i prezzi non sono disponibili)
+
+    # Usa il primo ticker come riferimento per il calendario di trading generale della simulazione LS
+    reference_dates_df = historical_data_map[tickers[0]]
 
     # --- EFFETTUA L'INVESTIMENTO LUMP SUM INIZIALE ---
-    capital_invested_ls = 0.0 # Tracciamo il capitale effettivamente investito se un asset non ha prezzo
-    
-    # Trova il primo giorno di trading valido per l'investimento Lump Sum
-    # (dovrebbe essere la stessa logica usata per il primo investimento PAC)
-    # Per semplicità, assumiamo che lump_sum_investment_date sia un giorno di trading valido
-    # o che useremo il prezzo del primo giorno di trading valido subito dopo.
-    
-    # Usiamo il DataFrame del primo ticker come riferimento per le date di trading generali
-    reference_dates_df = historical_data_map[tickers[0]]
-    
-    # Trova il primo giorno di trading effettivo a partire da lump_sum_investment_date
-    # nel DataFrame di riferimento
-    actual_investment_date_series = reference_dates_df.index[reference_dates_df.index >= lump_sum_investment_date]
-    if actual_investment_date_series.empty:
-        print(f"ERRORE (Lump Sum): Nessuna data di trading valida trovata a partire da {lump_sum_investment_date.strftime('%Y-%m-%d')} per l'investimento Lump Sum.")
+    # Trova il primo giorno di trading valido a partire da lump_sum_investment_date
+    # nel DataFrame di riferimento. Questo sarà il giorno effettivo dell'investimento.
+    potential_investment_days = reference_dates_df.index[reference_dates_df.index >= lump_sum_investment_date]
+    if potential_investment_days.empty:
+        # print(f"DEBUG (LS_engine): Nessuna data di trading valida trovata a partire da {lump_sum_investment_date.strftime('%Y-%m-%d')} per investimento Lump Sum nel reference ticker.")
         return pd.DataFrame()
-    actual_investment_day = actual_investment_date_series[0]
-
+    actual_investment_day_for_ls_setup = potential_investment_days[0]
 
     for i, ticker in enumerate(tickers):
         asset_data = historical_data_map[ticker]
-        allocation_amount = total_investment_lump_sum * allocations[i]
+        allocation_amount_for_ticker = total_investment_lump_sum * allocations[i]
         
-        price_at_investment = np.nan
-        if actual_investment_day in asset_data.index:
-            price_at_investment = asset_data.loc[actual_investment_day, 'Adj Close']
-        else: # Se actual_investment_day non è un giorno di trading per QUESTO asset, cerca il prossimo
-            next_trading_day_asset_series = asset_data.index[asset_data.index >= actual_investment_day]
-            if not next_trading_day_asset_series.empty:
-                actual_investment_day_asset = next_trading_day_asset_series[0]
-                price_at_investment = asset_data.loc[actual_investment_day_asset, 'Adj Close']
-            else: # Non ci sono giorni di trading successivi per questo asset nel range di dati
-                print(f"ATTENZIONE (Lump Sum): Nessun giorno di trading per {ticker} trovato a partire da {actual_investment_day.strftime('%Y-%m-%d')}. Impossibile investire in questo asset.")
+        price_at_investment_for_ticker = np.nan
+        # Verifica se actual_investment_day_for_ls_setup è un giorno di trading per QUESTO specifico asset
+        if actual_investment_day_for_ls_setup in asset_data.index:
+            price_at_investment_for_ticker = asset_data.loc[actual_investment_day_for_ls_setup, 'Adj Close']
+        else: 
+            # Se non lo è, cerca il *prossimo* giorno di trading disponibile per questo asset
+            next_trading_day_for_this_asset_series = asset_data.index[asset_data.index >= actual_investment_day_for_ls_setup]
+            if not next_trading_day_for_this_asset_series.empty:
+                actual_investment_day_for_this_asset = next_trading_day_for_this_asset_series[0]
+                price_at_investment_for_ticker = asset_data.loc[actual_investment_day_for_this_asset, 'Adj Close']
+            # else: print(f"DEBUG (LS_engine): Nessun giorno di trading per {ticker} per l'investimento iniziale LS.")
 
-        if pd.notna(price_at_investment) and price_at_investment > 0 and allocation_amount > 0:
-            shares_bought = allocation_amount / price_at_investment
+        if pd.notna(price_at_investment_for_ticker) and price_at_investment_for_ticker > 0 and allocation_amount_for_ticker > 0:
+            shares_bought = allocation_amount_for_ticker / price_at_investment_for_ticker
             portfolio_ls_details[ticker]['shares_owned'] = shares_bought
-            capital_invested_ls += allocation_amount # Solo se l'investimento è andato a buon fine
-            # print(f"Debug LS: Investito in {ticker} il {actual_investment_day.date()}: {shares_bought:.4f} quote a {price_at_investment:.2f}")
-        else:
-            print(f"ATTENZIONE (Lump Sum): Impossibile investire {allocation_amount:.2f} in {ticker} il {actual_investment_day.strftime('%Y-%m-%d')} (prezzo: {price_at_investment}).")
+            actual_capital_invested_ls += allocation_amount_for_ticker # Somma solo se l'investimento avviene
+        # else: print(f"DEBUG (LS_engine): Impossibile investire in {ticker} per LS il {actual_investment_day_for_ls_setup.strftime('%Y-%m-%d')}.")
 
     # --- TRACCIA L'EVOLUZIONE DEL PORTAFOGLIO LUMP SUM ---
-    # Definiamo il periodo per cui tracciare l'equity line del Lump Sum
-    # Deve iniziare da simulation_start_date (che è l'inizio del PAC)
-    # e finire a simulation_end_date (fine del PAC).
-    # L'investimento effettivo del LS è avvenuto su actual_investment_day.
-    
-    tracking_period_dates = reference_dates_df[
-        (reference_dates_df.index >= simulation_start_date) & # Inizia a tracciare da quando inizia il PAC
-        (reference_dates_df.index <= simulation_end_date)
+    # Il periodo di tracciamento inizia dal giorno dell'investimento LS effettivo 
+    # e va fino alla fine dei dati disponibili nel reference_dates_df.
+    simulation_start_dt_ls_tracking = actual_investment_day_for_ls_setup
+    simulation_end_dt_ls_tracking = reference_dates_df.index.max() # Fine dei dati del reference ticker
+
+    tracking_period_dates_ls = reference_dates_df[
+        (reference_dates_df.index >= simulation_start_dt_ls_tracking) &
+        (reference_dates_df.index <= simulation_end_dt_ls_tracking)
     ].index
 
-    if tracking_period_dates.empty:
-        print("ERRORE (Lump Sum): Nessuna data nel periodo di tracking per l'equity line.")
+    if tracking_period_dates_ls.empty:
+        # print("DEBUG (LS_engine): Nessuna data nel periodo di tracking per l'equity line LS.")
         return pd.DataFrame()
 
-
-    for current_date in tracking_period_dates:
-        portfolio_value_today_ls = 0.0
-        daily_total_dividend_received_ls = 0.0
+    for current_processing_date_ls in tracking_period_dates_ls:
+        current_day_portfolio_value_ls = 0.0
+        current_day_total_dividend_received_ls = 0.0
 
         for ticker in tickers:
             asset_data = historical_data_map[ticker]
-            asset_portfolio_ls = portfolio_ls_details[ticker]
+            asset_ls_state = portfolio_ls_details[ticker]
+            
+            current_price_for_asset_ls = np.nan
+            dividend_paid_by_asset_ls_today = 0.0
 
-            current_price_asset = np.nan
-            dividend_asset_today = 0.0
-
-            if current_date in asset_data.index:
-                current_price_asset = asset_data.loc[current_date, 'Adj Close']
-                dividend_asset_today = asset_data.loc[current_date, 'Dividend']
-            else: # Se non è un giorno di trading per questo asset, prendi ultimo prezzo noto
-                asset_data_before_or_on_current = asset_data[asset_data.index <= current_date]
-                if not asset_data_before_or_on_current.empty:
-                    current_price_asset = asset_data_before_or_on_current['Adj Close'].iloc[-1]
-                # dividend_asset_today rimane 0.0
-
+            if current_processing_date_ls in asset_data.index:
+                current_price_for_asset_ls = asset_data.loc[current_processing_date_ls, 'Adj Close']
+                dividend_paid_by_asset_ls_today = asset_data.loc[current_processing_date_ls, 'Dividend']
+            else: 
+                asset_data_up_to_today_ls = asset_data[asset_data.index <= current_processing_date_ls]
+                if not asset_data_up_to_today_ls.empty:
+                    current_price_for_asset_ls = asset_data_up_to_today_ls['Adj Close'].iloc[-1]
+            
             # Reinvestimento Dividendi per Lump Sum
-            if reinvest_dividends and dividend_asset_today > 0 and asset_portfolio_ls['shares_owned'] > 0 and \
-               pd.notna(current_price_asset) and current_price_asset > 0:
-                cash_from_dividends = asset_portfolio_ls['shares_owned'] * dividend_asset_today
-                asset_portfolio_ls['dividends_cumulative_asset'] += cash_from_dividends
-                daily_total_dividend_received_ls += cash_from_dividends
-                
-                additional_shares = cash_from_dividends / current_price_asset
-                asset_portfolio_ls['shares_owned'] += additional_shares
-            elif dividend_asset_today > 0 and asset_portfolio_ls['shares_owned'] > 0: # Traccia dividendi anche se non reinvestiti
-                 cash_from_dividends = asset_portfolio_ls['shares_owned'] * dividend_asset_today
-                 asset_portfolio_ls['dividends_cumulative_asset'] += cash_from_dividends
-                 daily_total_dividend_received_ls += cash_from_dividends
+            if reinvest_dividends and dividend_paid_by_asset_ls_today > 0 and asset_ls_state['shares_owned'] > 0 and \
+               pd.notna(current_price_for_asset_ls) and current_price_for_asset_ls > 0:
+                cash_from_dividends_ls = asset_ls_state['shares_owned'] * dividend_paid_by_asset_ls_today
+                asset_ls_state['dividends_cumulative_asset'] += cash_from_dividends_ls
+                current_day_total_dividend_received_ls += cash_from_dividends_ls
+                additional_shares_ls = cash_from_dividends_ls / current_price_for_asset_ls
+                asset_ls_state['shares_owned'] += additional_shares_ls
+            elif dividend_paid_by_asset_ls_today > 0 and asset_ls_state['shares_owned'] > 0:
+                 cash_from_dividends_ls = asset_ls_state['shares_owned'] * dividend_paid_by_asset_ls_today
+                 asset_ls_state['dividends_cumulative_asset'] += cash_from_dividends_ls
+                 current_day_total_dividend_received_ls += cash_from_dividends_ls
+            
+            if pd.notna(current_price_for_asset_ls):
+                asset_ls_state['current_value'] = asset_ls_state['shares_owned'] * current_price_for_asset_ls
+            current_day_portfolio_value_ls += asset_ls_state.get('current_value', 0.0)
 
-            # Valore della posizione
-            if pd.notna(current_price_asset):
-                current_asset_ls_value = asset_portfolio_ls['shares_owned'] * current_price_asset
-                asset_portfolio_ls['current_value'] = current_asset_ls_value
-                portfolio_value_today_ls += current_asset_ls_value
-            else:
-                portfolio_value_today_ls += asset_portfolio_ls.get('current_value', 0) # Usa ultimo valore noto
-
-        total_dividends_received_overall_ls += daily_total_dividend_received_ls
+        total_dividends_received_overall_ls += current_day_total_dividend_received_ls
 
         lump_sum_evolution_records.append({
-            'Date': current_date,
-            'InvestedCapital': capital_invested_ls, # Il capitale investito è fisso dopo l'investimento iniziale
-            'PortfolioValue': portfolio_value_today_ls,
+            'Date': current_processing_date_ls,
+            'InvestedCapital': actual_capital_invested_ls, # Capitale investito rimane costante
+            'PortfolioValue': current_day_portfolio_value_ls,
             'DividendsReceivedCumulative': total_dividends_received_overall_ls
         })
 
     if not lump_sum_evolution_records:
+        # print("DEBUG (LS_engine): Nessun record di evoluzione del portafoglio LS generato.")
         return pd.DataFrame()
 
     final_df_ls = pd.DataFrame(lump_sum_evolution_records)
+    if 'Date' in final_df_ls.columns: final_df_ls['Date'] = pd.to_datetime(final_df_ls['Date'])
+    
     return final_df_ls.reset_index(drop=True)
