@@ -1,196 +1,145 @@
-# simulatore_pac/utils/pac_engine.py
+# simulatore_pac/main.py
+import streamlit as st
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta
-from dateutil.relativedelta import relativedelta
+import numpy as np # Aggiunto per np.isclose
+from datetime import datetime, date
 
-def run_pac_simulation(
-    historical_data_map: dict[str, pd.DataFrame],
-    tickers: list[str],
-    allocations: list[float],
-    monthly_investment: float,
-    start_date_pac: str, # Stringa YYYY-MM-DD
-    duration_months: int, # Durata del PERIODO DI CONTRIBUZIONE PAC
-    reinvest_dividends: bool = True,
-    rebalance_active: bool = False,
-    rebalance_frequency: str = None,
-    # NUOVO: Data finale effettiva per l'intera simulazione (tracking post-PAC)
-    # Questa sarà determinata da main.py (es. potential_chart_extension_end_date)
-    # e usata per definire fino a quando il loop deve andare.
-    # Per ora, il loop andrà fino alla fine dei dati disponibili in historical_data_map.
-    # Assicuriamoci che historical_data_map contenga dati fino alla fine desiderata.
-    simulation_actual_end_date_dt: pd.Timestamp # NUOVO PARAMETRO ESPLICITO
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+from utils.data_loader import load_historical_data_yf
+from utils.pac_engine import run_pac_simulation # Nome funzione corretto
+from utils.performance import (
+    get_total_capital_invested,
+    get_final_portfolio_value,
+    calculate_total_return_percentage,
+    calculate_cagr,
+    get_duration_years
+)
 
-    # --- VALIDAZIONE INPUT (come prima) ---
-    if not isinstance(historical_data_map, dict) or not historical_data_map:
-        return pd.DataFrame(), pd.DataFrame()
-    if not tickers: return pd.DataFrame(), pd.DataFrame()
-    # ... (altri controlli di input) ...
+st.set_page_config(page_title="Simulatore PAC Multi-Asset", layout="wide")
+st.title("📘 Simulatore PAC Multi-Asset")
+st.caption("Progetto Kriterion Quant")
+
+st.sidebar.header("Parametri della Simulazione")
+
+# Input Multi-Asset
+st.sidebar.subheader("Asset e Allocazioni")
+tickers_input_str = st.sidebar.text_input("Tickers (separati da virgola)", "AAPL,MSFT,GOOG")
+allocations_input_str = st.sidebar.text_input("Allocazioni % (separate da virgola, somma 100)", "60,20,20")
+
+st.sidebar.subheader("Parametri PAC")
+monthly_investment_input = st.sidebar.number_input("Importo Versamento Mensile (€/$)", min_value=10.0, value=200.0, step=10.0)
+default_start_date_pac = date(2020, 1, 1)
+pac_start_date_input = st.sidebar.date_input("Data Inizio PAC", default_start_date_pac)
+duration_months_input = st.sidebar.number_input("Durata PAC (in mesi)", min_value=6, value=36, step=1)
+reinvest_dividends_input = st.sidebar.checkbox("Reinvesti Dividendi?", value=True)
+
+run_simulation_button = st.sidebar.button("🚀 Avvia Simulazione PAC")
+
+if run_simulation_button:
+    tickers_list = [ticker.strip().upper() for ticker in tickers_input_str.split(',') if ticker.strip()]
+    
     try:
-        pac_start_dt = pd.to_datetime(start_date_pac)
-        if pac_start_dt.tzinfo is not None: pac_start_dt = pac_start_dt.tz_localize(None)
-    except ValueError: return pd.DataFrame(), pd.DataFrame()
+        allocations_float_list = [float(alloc.strip()) for alloc in allocations_input_str.split(',') if alloc.strip()]
+        if not tickers_list:
+            st.error("Nessun ticker inserito.")
+        elif len(tickers_list) != len(allocations_float_list):
+            st.error("Il numero di ticker deve corrispondere al numero di allocazioni.")
+        elif not np.isclose(sum(allocations_float_list), 100.0):
+            st.error(f"La somma delle allocazioni ({sum(allocations_float_list)}%) deve essere 100%.")
+        else:
+            allocations_list_norm = [alloc / 100.0 for alloc in allocations_float_list] # Normalizza a somma 1.0
+            
+            st.header(f"Risultati Simulazione PAC per: {', '.join(tickers_list)}")
 
-    # --- PREPARAZIONE DATI e STATO PORTAFOGLIO ---
-    portfolio_details = {
-        ticker: {'shares_owned': 0.0, 'capital_invested_asset': 0.0, 
-                   'dividends_cumulative_asset': 0.0, 'current_value': 0.0}
-        for ticker in tickers
-    }
-    total_capital_invested_overall = 0.0 # Questo si ferma dopo duration_months
-    total_dividends_received_overall = 0.0
-    asset_daily_records = [] 
-    portfolio_total_evolution_records = []
-    month_counter_for_investment = 0
-    
-    last_rebalance_date = None
-    next_rebalance_date = None
-    if rebalance_active and rebalance_frequency:
-        if rebalance_frequency == "Annuale": next_rebalance_date = pac_start_dt + relativedelta(years=1)
-        elif rebalance_frequency == "Semestrale": next_rebalance_date = pac_start_dt + relativedelta(months=6)
-        elif rebalance_frequency == "Trimestrale": next_rebalance_date = pac_start_dt + relativedelta(months=3)
+            pac_start_date_str = pac_start_date_input.strftime('%Y-%m-%d')
+            data_fetch_start_date = (pac_start_date_input - pd.Timedelta(days=180)).strftime('%Y-%m-%d') # Buffer più ampio
+            sim_end_date_approx = pd.to_datetime(pac_start_date_input) + pd.DateOffset(months=duration_months_input)
+            data_fetch_end_date = (sim_end_date_approx + pd.Timedelta(days=90)).strftime('%Y-%m-%d')
 
-    # --- DETERMINA RANGE DATE SIMULAZIONE ---
-    # Il loop ora va fino alla fine dei dati disponibili nel reference_dates_df,
-    # che main.py dovrebbe aver caricato fino a potential_chart_extension_end_date.
-    reference_dates_df = historical_data_map[tickers[0]]
-    
-    # La simulazione inizia alla data di inizio del PAC.
-    # L'actual_simulation_end_date è l'ultima data disponibile nel reference ticker.
-    # main.py si occuperà di passare dati fino alla data desiderata.
-    simulation_start_date_dt = pac_start_dt
-    simulation_end_date_dt = reference_dates_df.index.max() # Fine dei dati disponibili
+            historical_data_map = {}
+            all_data_loaded = True
+            min_data_points_needed = duration_months_input + 6 # Stima approssimativa
+            
+            for ticker_to_load in tickers_list:
+                with st.spinner(f"Caricamento dati per {ticker_to_load}..."):
+                    data = load_historical_data_yf(ticker_to_load, data_fetch_start_date, data_fetch_end_date)
+                    if data.empty or len(data) < min_data_points_needed / (len(tickers_list)*0.5): # Controllo approssimativo
+                        st.error(f"Dati insufficienti o mancanti per {ticker_to_load} nel periodo richiesto.")
+                        all_data_loaded = False
+                        break
+                    historical_data_map[ticker_to_load] = data
+            
+            if not all_data_loaded:
+                st.stop()
 
-    simulation_period_dates = reference_dates_df[
-        (reference_dates_df.index >= simulation_start_date_dt) &
-        (reference_dates_df.index <= effective_simulation_end)
-    ].index
-    
-    if simulation_period_dates.empty:
-        print("ERRORE (PAC): Nessuna data valida nel periodo di simulazione.")
-        return pd.DataFrame(), pd.DataFrame()
+            st.success("Tutti i dati storici caricati correttamente.")
+            
+            with st.spinner("Esecuzione simulazione PAC multi-asset..."):
+                pac_simulation_df = run_pac_simulation(
+                    historical_data_map=historical_data_map,
+                    tickers=tickers_list,
+                    allocations=allocations_list_norm,
+                    monthly_investment=monthly_investment_input,
+                    start_date_pac=pac_start_date_str,
+                    duration_months=duration_months_input,
+                    reinvest_dividends=reinvest_dividends_input
+                )
 
-    # --- LOOP DI SIMULAZIONE GIORNALIERO ---
-    for current_date in simulation_period_dates:
-        portfolio_value_today_total = 0.0
-        daily_total_dividend_received = 0.0
-        current_day_asset_details_record = {'Date': current_date}
-
-        # --- LOGICA DI INVESTIMENTO PAC MENSILE ---
-        # Avviene solo se siamo ancora nel periodo di contribuzione del PAC (duration_months)
-        if month_counter_for_investment < duration_months:
-            investment_date_target_for_this_month = pac_start_dt + relativedelta(months=month_counter_for_investment)
-            is_pac_investment_day_for_current_month_target = False
-            if current_date >= investment_date_target_for_this_month:
-                # Verifica se è il primo giorno di trading valido per questo versamento
-                # (considerando che simulation_period_dates sono già giorni di trading del reference)
-                potential_investment_trigger_date = simulation_period_dates[simulation_period_dates >= investment_date_target_for_this_month]
-                if not potential_investment_trigger_date.empty and current_date == potential_investment_trigger_date[0]:
-                    is_pac_investment_day_for_current_month_target = True
-
-            if is_pac_investment_day_for_current_month_target:
-                total_capital_invested_overall += monthly_investment # Incrementa solo durante i versamenti
-                for i, ticker in enumerate(tickers):
-                    asset_data = historical_data_map[ticker]
-                    allocation = allocations[i]
-                    investment_for_this_asset = monthly_investment * allocation
-                    price_for_investment = np.nan
-                    if current_date in asset_data.index:
-                        price_for_investment = asset_data.loc[current_date, 'Adj Close']
-                    else: 
-                        asset_data_before_or_on_current = asset_data[asset_data.index <= current_date]
-                        if not asset_data_before_or_on_current.empty:
-                            price_for_investment = asset_data_before_or_on_current['Adj Close'].iloc[-1]
-                    if pd.notna(price_for_investment) and price_for_investment > 0 and allocation > 0:
-                        shares_bought = investment_for_this_asset / price_for_investment
-                        portfolio_details[ticker]['shares_owned'] += shares_bought
-                        portfolio_details[ticker]['capital_invested_asset'] += investment_for_this_asset
-                month_counter_for_investment += 1
-
-        # --- LOGICA DI RIBILANCIAMENTO (continua anche dopo la fine dei versamenti PAC) ---
-        perform_rebalance_today = False
-        if rebalance_active and next_rebalance_date and current_date >= next_rebalance_date:
-            perform_rebalance_today = True
-        
-        if perform_rebalance_today:
-            # ... (logica di ribilanciamento come prima, INVARIATA) ...
-            # (calcola current_total_portfolio_value_for_rebalance, aggiorna shares_owned per ogni ticker)
-            # (aggiorna next_rebalance_date)
-            print(f"INFO (PAC): Ribilanciamento in data {current_date.strftime('%Y-%m-%d')}")
-            current_total_portfolio_value_for_rebalance = 0; temp_asset_values_for_rebalance = {}
-            for ticker_rebal in tickers:
-                asset_data_rebal = historical_data_map[ticker_rebal]; asset_portfolio_rebal = portfolio_details[ticker_rebal]; price_for_rebalance = np.nan
-                if current_date in asset_data_rebal.index: price_for_rebalance = asset_data_rebal.loc[current_date, 'Adj Close']
-                else:
-                    asset_data_before = asset_data_rebal[asset_data_rebal.index <= current_date]
-                    if not asset_data_before.empty: price_for_rebalance = asset_data_before['Adj Close'].iloc[-1]
-                if pd.notna(price_for_rebalance): value = asset_portfolio_rebal['shares_owned'] * price_for_rebalance; temp_asset_values_for_rebalance[ticker_rebal] = {'value': value, 'price': price_for_rebalance}; current_total_portfolio_value_for_rebalance += value
-                else: temp_asset_values_for_rebalance[ticker_rebal] = {'value': asset_portfolio_rebal.get('current_value',0), 'price': np.nan}; current_total_portfolio_value_for_rebalance += asset_portfolio_rebal.get('current_value',0)
-            if current_total_portfolio_value_for_rebalance > 0:
-                for i_rebal, ticker_rebal in enumerate(tickers):
-                    target_allocation = allocations[i_rebal]; asset_portfolio_rebal = portfolio_details[ticker_rebal]
-                    target_value_asset = current_total_portfolio_value_for_rebalance * target_allocation
-                    current_value_asset = temp_asset_values_for_rebalance[ticker_rebal]['value']; price_asset = temp_asset_values_for_rebalance[ticker_rebal]['price']
-                    value_difference = target_value_asset - current_value_asset
-                    if pd.notna(price_asset) and price_asset > 0:
-                        shares_to_transact = value_difference / price_asset
-                        if shares_to_transact < 0 and abs(shares_to_transact) > asset_portfolio_rebal['shares_owned']: shares_to_transact = -asset_portfolio_rebal['shares_owned']
-                        asset_portfolio_rebal['shares_owned'] += shares_to_transact
-            last_rebalance_date = current_date
-            if rebalance_frequency == "Annuale": next_rebalance_date = last_rebalance_date + relativedelta(years=1)
-            elif rebalance_frequency == "Semestrale": next_rebalance_date = last_rebalance_date + relativedelta(months=6)
-            elif rebalance_frequency == "Trimestrale": next_rebalance_date = last_rebalance_date + relativedelta(months=3)
-
-        # --- GESTIONE DIVIDENDI E VALORE PORTAFOGLIO GIORNALIERO (continua anche dopo la fine dei versamenti PAC) ---
-        portfolio_value_today_total = 0
-        for ticker in tickers:
-            asset_data = historical_data_map[ticker]
-            asset_portfolio = portfolio_details[ticker]
-            current_price_asset = np.nan; dividend_asset_today = 0.0
-            if current_date in asset_data.index:
-                current_price_asset = asset_data.loc[current_date, 'Adj Close']
-                dividend_asset_today = asset_data.loc[current_date, 'Dividend']
+            if pac_simulation_df.empty or 'PortfolioValue' not in pac_simulation_df.columns:
+                st.error("La simulazione PAC multi-asset non ha prodotto risultati validi.")
             else:
-                asset_data_before_or_on_current = asset_data[asset_data.index <= current_date]
-                if not asset_data_before_or_on_current.empty:
-                    current_price_asset = asset_data_before_or_on_current['Adj Close'].iloc[-1]
-            
-            if reinvest_dividends and dividend_asset_today > 0 and asset_portfolio['shares_owned'] > 0 and pd.notna(current_price_asset) and current_price_asset > 0:
-                cash_from_dividends = asset_portfolio['shares_owned'] * dividend_asset_today
-                asset_portfolio['dividends_cumulative_asset'] += cash_from_dividends
-                daily_total_dividend_received += cash_from_dividends
-                additional_shares = cash_from_dividends / current_price_asset
-                asset_portfolio['shares_owned'] += additional_shares
-            elif dividend_asset_today > 0 and asset_portfolio['shares_owned'] > 0:
-                 cash_from_dividends = asset_portfolio['shares_owned'] * dividend_asset_today
-                 asset_portfolio['dividends_cumulative_asset'] += cash_from_dividends
-                 daily_total_dividend_received += cash_from_dividends
-            
-            if pd.notna(current_price_asset):
-                current_asset_value = asset_portfolio['shares_owned'] * current_price_asset
-                asset_portfolio['current_value'] = current_asset_value
-            else: current_asset_value = asset_portfolio.get('current_value', 0.0) 
-            portfolio_value_today_total += current_asset_value
+                st.success("Simulazione PAC multi-asset completata.")
 
-            current_day_asset_details_record[f'{ticker}_shares'] = asset_portfolio['shares_owned']
-            current_day_asset_details_record[f'{ticker}_value'] = current_asset_value
-            current_day_asset_details_record[f'{ticker}_capital_invested'] = asset_portfolio['capital_invested_asset']
-        
-        asset_daily_records.append(current_day_asset_details_record)
-        total_dividends_received_overall += daily_total_dividend_received
+                total_invested = get_total_capital_invested(pac_simulation_df)
+                final_value = get_final_portfolio_value(pac_simulation_df)
+                total_return_perc = calculate_total_return_percentage(final_value, total_invested)
+                duration_yrs = get_duration_years(pac_simulation_df)
+                cagr_perc = calculate_cagr(final_value, total_invested, duration_yrs)
+                total_dividends_cumulative = pac_simulation_df['DividendsReceivedCumulative'].iloc[-1] if 'DividendsReceivedCumulative' in pac_simulation_df.columns else 0.0
 
-        portfolio_total_evolution_records.append({
-            'Date': current_date,
-            'InvestedCapital': total_capital_invested_overall, # Questo non cresce più dopo la fine del PAC
-            'PortfolioValue': portfolio_value_today_total,
-            'DividendsReceivedCumulative': total_dividends_received_overall
-        })
+                st.subheader("Metriche di Performance Riepilogative")
+                num_cols = 4
+                if reinvest_dividends_input and total_dividends_cumulative > 0:
+                    num_cols = 5
+                
+                cols = st.columns(num_cols)
+                cols[0].metric("Capitale Totale Investito", f"{total_invested:,.2f}")
+                cols[1].metric("Valore Finale Portafoglio", f"{final_value:,.2f}")
+                
+                col_idx = 2
+                if reinvest_dividends_input and total_dividends_cumulative > 0:
+                    cols[col_idx].metric("Dividendi Reinvestiti", f"{total_dividends_cumulative:,.2f}")
+                    col_idx += 1
+                
+                cols[col_idx].metric("Rendimento Totale", f"{total_return_perc:.2f}%")
+                col_idx += 1
+                if pd.notna(cagr_perc):
+                    cols[col_idx].metric("CAGR", f"{cagr_perc:.2f}%")
+                else:
+                    cols[col_idx].metric("CAGR", "N/A")
+                
+                st.write(f"_Durata approssimativa della simulazione: {duration_yrs:.2f} anni._")
+                # ... (resto della UI come prima per grafico e tabella dati)
+                st.subheader("Andamento del Portafoglio nel Tempo")
+                chart_df = pac_simulation_df[['Date', 'PortfolioValue', 'InvestedCapital']].copy()
+                if 'Date' in chart_df.columns:
+                     chart_df['Date'] = pd.to_datetime(chart_df['Date'])
+                     chart_df = chart_df.set_index('Date')
+                if not chart_df.empty:
+                    st.line_chart(chart_df)
 
-    # --- FINE LOOP DI SIMULAZIONE ---
-    if not portfolio_total_evolution_records: return pd.DataFrame(), pd.DataFrame()
-    pac_total_df = pd.DataFrame(portfolio_total_evolution_records).reset_index(drop=True)
-    asset_details_history_df = pd.DataFrame(asset_daily_records)
-    if not asset_details_history_df.empty:
-        asset_details_history_df['Date'] = pd.to_datetime(asset_details_history_df['Date'])
-    return pac_total_df, asset_details_history_df
+                if st.checkbox("Mostra dati dettagliati della simulazione PAC"):
+                    st.dataframe(pac_simulation_df)
+
+
+    except ValueError as ve:
+        st.error(f"Errore nei valori di input per le allocazioni: {ve}. Assicurati che siano numeri.")
+    except Exception as e:
+        st.error(f"Si è verificato un errore imprevisto: {e}")
+        import traceback
+        st.text(traceback.format_exc())
+
+else:
+    st.info("Inserisci i parametri nella sidebar e avvia la simulazione.")
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("Progetto Kriterion Quant")
