@@ -257,39 +257,50 @@ if run_simulation_button:
 # In main.py, all'interno del blocco 'if not pac_total_df.empty ... else:'
 # dopo la sezione del Grafico Drawdown
 
+# In main.py
+
         # --- ISTOGRAMMA RENDIMENTI ANNUALI ---
         st.subheader("Istogramma Rendimenti Annuali (%)")
         data_for_annual_hist = {}
+        
         # Calcola rendimenti annuali per PAC
+        st.write("--- DEBUG (main.py): Tentativo calcolo rendimenti annuali per PAC ---")
         if not pac_total_df.empty and 'PortfolioValue' in pac_total_df.columns and 'Date' in pac_total_df.columns:
-            # Assicurati che l'indice sia DatetimeIndex per calculate_annual_returns
-            pac_pv_for_annual_calc = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
-            annual_returns_pac = calculate_annual_returns(pac_pv_for_annual_calc)
-            if not annual_returns_pac.empty:
-                # L'indice di annual_returns_pac è già l'anno
+            pac_pv_ah = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
+            st.write(f"--- DEBUG (main.py): Serie Valori PAC per Rend. Ann. (prime 5):\n{pac_pv_ah.head()}")
+            annual_returns_pac = calculate_annual_returns(pac_pv_ah)
+            st.write(f"--- DEBUG (main.py): Rendimenti Annuali PAC calcolati:\n{annual_returns_pac}")
+            if not annual_returns_pac.empty and not annual_returns_pac.isnull().all():
                 data_for_annual_hist["PAC"] = annual_returns_pac
+            else:
+                st.write("--- DEBUG (main.py): Rendimenti Annuali PAC vuoti o tutti NaN. ---")
 
         # Calcola rendimenti annuali per Lump Sum
+        st.write("--- DEBUG (main.py): Tentativo calcolo rendimenti annuali per Lump Sum ---")
         if not lump_sum_df.empty and 'PortfolioValue' in lump_sum_df.columns and 'Date' in lump_sum_df.columns:
-            ls_pv_for_annual_calc = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']
-            annual_returns_ls = calculate_annual_returns(ls_pv_for_annual_calc)
-            if not annual_returns_ls.empty:
-                # L'indice di annual_returns_ls è già l'anno
+            ls_pv_ah = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']
+            st.write(f"--- DEBUG (main.py): Serie Valori LS per Rend. Ann. (prime 5):\n{ls_pv_ah.head()}")
+            annual_returns_ls = calculate_annual_returns(ls_pv_ah)
+            st.write(f"--- DEBUG (main.py): Rendimenti Annuali LS calcolati:\n{annual_returns_ls}")
+            if not annual_returns_ls.empty and not annual_returns_ls.isnull().all():
                 data_for_annual_hist["Lump Sum"] = annual_returns_ls
+            else:
+                st.write("--- DEBUG (main.py): Rendimenti Annuali LS vuoti o tutti NaN. ---")
         
         if data_for_annual_hist:
-            # Crea un DataFrame combinato per st.bar_chart
-            # Gli indici (anni) potrebbero non essere identici se i periodi sono diversi,
-            # quindi pd.DataFrame gestirà l'allineamento e riempirà con NaN dove necessario.
+            st.write(f"--- DEBUG (main.py): Dati pronti per DataFrame istogramma: {data_for_annual_hist.keys()} ---")
             annual_hist_df = pd.DataFrame(data_for_annual_hist)
-            annual_hist_df.dropna(how='all', inplace=True) # Rimuovi anni se entrambi PAC e LS sono NaN
+            st.write(f"--- DEBUG (main.py): DataFrame per istogramma (prima di dropna):\n{annual_hist_df}")
+            annual_hist_df.dropna(how='all', inplace=True) 
             
             if not annual_hist_df.empty:
+                st.write(f"--- DEBUG (main.py): DataFrame per istogramma (dopo dropna):\n{annual_hist_df}")
                 st.bar_chart(annual_hist_df)
+                st.write("--- DEBUG: Istogramma Rend. Ann. DOVREBBE ESSERE VISUALIZZATO ---")
             else:
                 st.warning("Dati sui rendimenti annuali non sufficienti per l'istogramma dopo la pulizia.")
         else:
-            st.warning("Non ci sono dati sufficienti per l'istogramma dei rendimenti annuali.")
+            st.warning("Non ci sono dati sufficienti per l'istogramma dei rendimenti annuali (data_for_annual_hist è vuoto).")
 
         # ... qui seguiranno le altre sezioni (es. Rolling Metrics, Stacked Area, ecc.)
     # --- TABELLA QUOTE/WAP (Logica invariata) ---
