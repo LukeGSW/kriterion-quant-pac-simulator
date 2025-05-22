@@ -383,22 +383,22 @@ if run_simulation_button:
                 )
                 
                 # --- CHIUDI LE FIGURE MATPLOTLIB PER LIBERARE MEMORIA ---
-                if equity_fig_mpl: plt.close(equity_fig_mpl)
-                if drawdown_fig_mpl: plt.close(drawdown_fig_mpl)
-                if stacked_area_fig_mpl: plt.close(stacked_area_fig_mpl)
+        if equity_fig_mpl: plt.close(equity_fig_mpl)
+        if drawdown_fig_mpl: plt.close(drawdown_fig_mpl)
+        if stacked_area_fig_mpl: plt.close(stacked_area_fig_mpl)
                 # --- FINE CHIUSURA FIGURE ---
                 
-                st.download_button(
-                    label="Scarica Report PDF Completo", # Etichetta aggiornata
-                    data=pdf_bytes,
-                    file_name=f"report_pac_{'_'.join(tickers_list)}.pdf",
-                    mime='application/pdf',
-                    key='dl_report_pdf_v9' # Chiave aggiornata
+        st.download_button(
+            label="Scarica Report PDF Completo", # Etichetta aggiornata
+            data=pdf_bytes,
+            file_name=f"report_pac_{'_'.join(tickers_list)}.pdf",
+            mime='application/pdf',
+            key='dl_report_pdf_v9' # Chiave aggiornata
                 )
-            except Exception as e_pdf:
-                st.warning(f"Impossibile generare il report PDF: {e_pdf}")
-                import traceback
-                st.text(f"Dettagli errore PDF:\n{traceback.format_exc()}") # Stampa il traceback sulla pagina
+        except Exception as e_pdf:
+            st.warning(f"Impossibile generare il report PDF: {e_pdf}")
+            import traceback
+            st.text(f"Dettagli errore PDF:\n{traceback.format_exc()}") # Stampa il traceback sulla pagina
 else: 
     st.info("Inserisci parametri e avvia simulazione.")
 
