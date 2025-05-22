@@ -12,16 +12,19 @@ try:
     from utils.performance import (
         get_total_capital_invested, get_final_portfolio_value,
         calculate_total_return_percentage, calculate_cagr, get_duration_years,
-        calculate_portfolio_returns, calculate_annualized_volatility, # La manterremo per LS
-        calculate_sharpe_ratio, # La manterremo per entrambi, con PAC che usa tutti i rendimenti
-        calculate_max_drawdown, calculate_drawdown_series,
+        calculate_portfolio_returns, calculate_annualized_volatility,
+        calculate_sharpe_ratio, calculate_max_drawdown, calculate_drawdown_series,
         generate_cash_flows_for_xirr, calculate_xirr_metric,
-        get_final_asset_details, calculate_wap_for_assets
+        calculate_annual_returns, # <--- ASSICURATI CHE QUESTA RIGA SIA PRESENTE E NON COMMENTATA
+        get_final_asset_details, calculate_wap_for_assets 
+        # Rimosse: calculate_rolling_volatility, calculate_rolling_sharpe_ratio, calculate_rolling_cagr
     )
     IMPORT_SUCCESS = True
 except ImportError as import_err:
     IMPORT_SUCCESS = False
     IMPORT_ERROR_MESSAGE = str(import_err)
+
+# ... il resto del tuo main.py ...
 
 st.set_page_config(page_title="Simulatore PAC Core V2", layout="wide")
 st.title("📘 Simulatore PAC Core V2")
