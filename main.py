@@ -117,23 +117,27 @@ if run_simulation_button:
     if pac_total_df.empty or 'PortfolioValue' not in pac_total_df.columns or len(pac_total_df)<2: st.error("Simulazione PAC fallita."); st.stop()
     st.success("Simulazioni OK. Elaborazione output.")
 
-    # --- FUNZIONE HELPER PER METRICHE ---
-    def calculate_and_format_metrics(sim_df, strategy_name, total_invested_override=None, is_pac=False):
-        metrics_display = {}
-        # Volatilità Ann. è stata rimossa dalle chiavi ordinate per il PAC
-        keys_ordered_pac = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", "Sharpe", "Max Drawdown"]
-        keys_ordered_ls = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", "Volatilità Ann.", "Sharpe", "Max Drawdown"]
-        
-        current_keys = keys_ordered_pac if is_pac else keys_ordered_ls
-        for k in current_keys: metrics_display[k] = "N/A"
+# In main.py
 
-        if sim_df.empty or 'PortfolioValue' not in sim_df.columns or len(sim_df) < 2: 
-            return metrics_display
+    # --- FUNZIONE HELPER PER METRICHE (MODIFICATA) ---
+    def calculate_and_format_metrics(sim_df, strategy_name, total_invested_override=None, is_pac=False):
+        metrics_values = {} # Per valori numerici, se servono altrove
+        metrics_display = {} # Per valori formattati per la tabella
         
+        # Definisci qui TUTTE le metriche che POTREBBERO essere calcolate
+        # Le popoleremo solo se applicabili
+        
+        if sim_df.empty or 'PortfolioValue' not in sim_df.columns or len(sim_df) < 2: 
+            # Se non ci sono dati, restituisci N/A per tutte le metriche potenziali
+            potential_metrics = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", "Volatilità Ann.", "Sharpe", "Max Drawdown"]
+            return {k: "N/A" for k in potential_metrics}
+
         actual_total_invested = total_invested_override if total_invested_override is not None else get_total_capital_invested(sim_df)
         metrics_display["Capitale Investito"] = f"{actual_total_invested:,.2f}"
+        
         final_portfolio_val = get_final_portfolio_value(sim_df)
         metrics_display["Valore Finale"] = f"{final_portfolio_val:,.2f}"
+        
         rend_tot = calculate_total_return_percentage(final_portfolio_val, actual_total_invested)
         metrics_display["Rend. Totale"] = f"{rend_tot:.2f}%" if pd.notna(rend_tot) else "N/A"
         
@@ -143,12 +147,12 @@ if run_simulation_button:
         
         returns_strat = calculate_portfolio_returns(sim_df.copy())
         
-        # Calcola sempre la volatilità, ma visualizzala solo per LS
-        vol_strat = calculate_annualized_volatility(returns_strat)
-        if not is_pac: # Mostra Volatilità solo per Lump Sum
-            metrics_display["Volatilità Ann."] = f"{vol_strat:.2f}%" if pd.notna(vol_strat) else "N/A"
+        # Calcola sempre la volatilità per usarla nello Sharpe, ma visualizzala solo se non è PAC
+        vol_strat_numeric = calculate_annualized_volatility(returns_strat) # Valore numerico
+        if not is_pac: # Mostra Volatilità solo per Lump Sum (o altre strategie non-PAC future)
+            metrics_display["Volatilità Ann."] = f"{vol_strat_numeric:.2f}%" if pd.notna(vol_strat_numeric) else "N/A"
+        # Per il PAC, la chiave "Volatilità Ann." non verrà aggiunta a metrics_display
         
-        # Sharpe Ratio calcolato usando tutti i rendimenti per il PAC (rimossa l'esclusione dei primi N)
         sharpe_strat = calculate_sharpe_ratio(returns_strat, risk_free_rate_annual=(risk_free_rate_input/100.0))
         metrics_display["Sharpe"] = f"{sharpe_strat:.2f}" if pd.notna(sharpe_strat) else "N/A"
         
@@ -160,29 +164,49 @@ if run_simulation_button:
             xirr_val = calculate_xirr_metric(xirr_dates, xirr_values)
             metrics_display["XIRR"] = f"{xirr_val:.2f}%" if pd.notna(xirr_val) else "N/A"
         else: 
-            metrics_display["XIRR"] = metrics_display["CAGR"] 
+            metrics_display["XIRR"] = metrics_display["CAGR"] # Approssimazione per LS
         return metrics_display
 
     metrics_pac_display = calculate_and_format_metrics(pac_total_df, "PAC", is_pac=True)
-    # Usiamo le chiavi del PAC (senza volatilità) come base per la tabella
-    df_for_table = pd.DataFrame(index=metrics_pac_display.keys())
-    df_for_table["PAC"] = df_for_table.index.map(metrics_pac_display)
-    df_for_table.index.name = "Metrica"
-
-
-    if not lump_sum_df.empty:
-        total_invested_val_pac = get_total_capital_invested(pac_total_df)
-        metrics_ls_display = calculate_and_format_metrics(lump_sum_df, "Lump Sum", total_invested_override=total_invested_val_pac, is_pac=False)
-        # Aggiungi colonna LS, mappando per le metriche che esistono anche per LS
-        df_for_table["Lump Sum"] = df_for_table.index.map(metrics_ls_display)
-        # Se "Volatilità Ann." non era una chiave per PAC, aggiungila ora se presente in LS
-        if "Volatilità Ann." in metrics_ls_display and "Volatilità Ann." not in df_for_table.index:
-             df_for_table.loc["Volatilità Ann.", "Lump Sum"] = metrics_ls_display["Volatilità Ann."]
-             df_for_table.loc["Volatilità Ann.", "PAC"] = "N/A" # Esplicita N/A per PAC
     
-    st.subheader("Metriche di Performance Riepilogative")
-    st.table(df_for_table.fillna("N/A")) # Riempi eventuali NaN con "N/A" per pulizia
+    # Definisci l'ordine desiderato delle metriche nella tabella
+    ordered_metrics_labels = ["Capitale Investito", "Valore Finale", "Rend. Totale", "CAGR", "XIRR", "Sharpe", "Max Drawdown"]
+    # Aggiungi Volatilità solo se stiamo per mostrare il Lump Sum
+    if not lump_sum_df.empty:
+        ordered_metrics_labels.insert(5, "Volatilità Ann.") # Inserisci prima di Sharpe
 
+    # Costruisci il DataFrame per la tabella
+    table_display_data = {}
+    for metric_label in ordered_metrics_labels:
+        pac_value = metrics_pac_display.get(metric_label, "N/A") # Prendi da PAC, default N/A
+        ls_value = "N/A" # Default per LS
+        
+        if not lump_sum_df.empty:
+            # Calcola metriche LS solo se il df LS esiste
+            total_invested_val_pac = get_total_capital_invested(pac_total_df) # Questo è il capitale per il LS
+            metrics_ls_display_temp = calculate_and_format_metrics(lump_sum_df, "Lump Sum", total_invested_override=total_invested_val_pac, is_pac=False)
+            ls_value = metrics_ls_display_temp.get(metric_label, "N/A")
+
+        # Per il PAC, la volatilità non è desiderata, quindi assicurati che sia N/A se la riga viene creata per LS
+        if metric_label == "Volatilità Ann.":
+            pac_value = "N/A" # Sovrascrivi per PAC
+            if lump_sum_df.empty: # Se non c'è LS, non mostrare proprio la riga Volatilità
+                continue 
+        
+        table_display_data[metric_label] = {"PAC": pac_value}
+        if not lump_sum_df.empty:
+            table_display_data[metric_label]["Lump Sum"] = ls_value
+    
+    df_for_table = pd.DataFrame.from_dict(table_display_data, orient='index')
+    if "Lump Sum" not in df_for_table.columns and not lump_sum_df.empty: # Aggiungi colonna LS se manca ma i dati LS ci sono
+        df_for_table["Lump Sum"] = "N/A"
+
+
+    st.subheader("Metriche di Performance Riepilogative")
+    if not df_for_table.empty:
+        st.table(df_for_table)
+    else:
+        st.warning("Nessuna metrica da visualizzare.")
 
     # --- GRAFICO EQUITY LINE ESTESO (Logica invariata) ---
     st.subheader("Andamento Comparativo del Portafoglio")
