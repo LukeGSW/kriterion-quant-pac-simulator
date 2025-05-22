@@ -233,3 +233,91 @@ def calculate_wap_for_assets(final_asset_details: dict) -> dict:
         else:
             waps[ticker] = np.nan
     return waps
+# in utils/performance.py
+
+def calculate_annual_returns(portfolio_values_series: pd.Series) -> pd.Series:
+    """
+    Calcola i rendimenti per ogni anno civile coperto dalla serie di valori di portafoglio.
+    L'input portfolio_values_series deve avere un DatetimeIndex.
+    """
+    print(f"DEBUG (calc_annual_returns): Ricevuta serie con indice tipo {type(portfolio_values_series.index)}, lunghezza {len(portfolio_values_series)}")
+    if not isinstance(portfolio_values_series, pd.Series) or portfolio_values_series.empty:
+        print("DEBUG (calc_annual_returns): Serie input vuota.")
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+    
+    if not isinstance(portfolio_values_series.index, pd.DatetimeIndex):
+        print(f"DEBUG (calc_annual_returns): Indice NON è DatetimeIndex, tentativo di conversione.")
+        try:
+            temp_index = pd.to_datetime(portfolio_values_series.index)
+            if isinstance(temp_index, pd.DatetimeIndex):
+                portfolio_values_series = portfolio_values_series.copy()
+                portfolio_values_series.index = temp_index
+                print(f"DEBUG (calc_annual_returns): Indice convertito a DatetimeIndex.")
+            else:
+                print("DEBUG (calc_annual_returns): Conversione indice fallita, tipo risultante:", type(temp_index))
+                return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+        except Exception as e_conv:
+            print(f"DEBUG (calc_annual_returns): Eccezione conversione indice: {e_conv}")
+            return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    if len(portfolio_values_series.dropna()) < 2: # Necessari almeno 2 valori non-NaN
+        print(f"DEBUG (calc_annual_returns): Non abbastanza dati validi (non-NaN) nella serie: {len(portfolio_values_series.dropna())} valori.")
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    portfolio_values_series = portfolio_values_series.sort_index()
+    portfolio_values_series = portfolio_values_series[~portfolio_values_series.index.duplicated(keep='last')]
+    # print(f"DEBUG (calc_annual_returns): Serie dopo sort/drop_duplicates (prime 5): \n{portfolio_values_series.head()}")
+
+    years = sorted(list(set(portfolio_values_series.index.year)))
+    annual_returns_list = []
+    print(f"DEBUG (calc_annual_returns): Anni identificati nella serie: {years}")
+
+    if not years:
+        print("DEBUG (calc_annual_returns): Nessun anno identificato.")
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    for year_idx, year in enumerate(years):
+        print(f"DEBUG (calc_annual_returns): Processing anno {year}")
+        
+        current_year_values = portfolio_values_series[portfolio_values_series.index.year == year]
+        if current_year_values.empty:
+            print(f"DEBUG (calc_annual_returns): Nessun dato per l'anno {year}.")
+            annual_returns_list.append({'Year': year, 'Return': np.nan}) # Aggiungi NaN per mantenere la struttura se necessario
+            continue
+
+        # Valore di fine anno precedente (o primo valore della serie se è il primo anno)
+        if year_idx == 0: # Primo anno nella serie di dati fornita
+            initial_value_for_year_calc = current_year_values.iloc[0]
+            print(f"DEBUG (calc_annual_returns): Anno {year} (primo anno dati), initial_value: {initial_value_for_year_calc} (dal {current_year_values.index[0].date()})")
+        else:
+            previous_year = years[year_idx - 1] # Anno precedente nella nostra lista `years`
+            end_of_previous_year_series = portfolio_values_series[portfolio_values_series.index.year == previous_year]
+            if not end_of_previous_year_series.empty:
+                initial_value_for_year_calc = end_of_previous_year_series.iloc[-1]
+                print(f"DEBUG (calc_annual_returns): Anno {year}, initial_value (da fine {previous_year}): {initial_value_for_year_calc} (dal {end_of_previous_year_series.index[-1].date()})")
+            else:
+                # Questo caso è meno probabile se `years` è derivato dalla stessa serie,
+                # ma per sicurezza, se non ci sono dati per l'anno precedente, non possiamo calcolare.
+                print(f"DEBUG (calc_annual_returns): Anno {year}, nessun dato per anno precedente {previous_year}. Salto.")
+                annual_returns_list.append({'Year': year, 'Return': np.nan})
+                continue
+        
+        final_value_for_year_calc = current_year_values.iloc[-1]
+        print(f"DEBUG (calc_annual_returns): Anno {year}, final_value: {final_value_for_year_calc} (dal {current_year_values.index[-1].date()})")
+
+        if pd.notna(initial_value_for_year_calc) and pd.notna(final_value_for_year_calc) and not np.isclose(initial_value_for_year_calc, 0):
+            year_return = (final_value_for_year_calc / initial_value_for_year_calc) - 1
+            annual_returns_list.append({'Year': year, 'Return': year_return * 100})
+            print(f"DEBUG (calc_annual_returns): Anno {year}, Rendimento calcolato: {year_return * 100:.2f}%")
+        else:
+            annual_returns_list.append({'Year': year, 'Return': np.nan})
+            print(f"DEBUG (calc_annual_returns): Anno {year}, Rendimento NON calcolabile (initial: {initial_value_for_year_calc}, final: {final_value_for_year_calc}).")
+
+    if not annual_returns_list:
+        print("DEBUG (calc_annual_returns): Lista rendimenti annuali vuota.")
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    returns_df = pd.DataFrame(annual_returns_list).set_index('Year')['Return']
+    returns_df.name = "Rendimento Annuale (%)"
+    print(f"DEBUG (calc_annual_returns): Serie rendimenti annuali finali:\n{returns_df}")
+    return returns_df
