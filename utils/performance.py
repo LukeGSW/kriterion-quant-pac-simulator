@@ -248,45 +248,92 @@ def calculate_xirr_metric(dates: list, values: list) -> float:
 # utils/performance.py
 # ... (altre importazioni e funzioni) ...
 
+# in utils/performance.py
+
 def calculate_annual_returns(portfolio_values_series: pd.Series) -> pd.Series:
     """
-    Calcola i rendimenti annuali da una serie di valori di portafoglio giornalieri.
+    Calcola i rendimenti per ogni anno civile coperto dalla serie di valori di portafoglio.
     L'input portfolio_values_series deve avere un DatetimeIndex.
     """
     if not isinstance(portfolio_values_series, pd.Series) or portfolio_values_series.empty or \
-       not isinstance(portfolio_values_series.index, pd.DatetimeIndex) or len(portfolio_values_series) < 2:
+       not isinstance(portfolio_values_series.index, pd.DatetimeIndex) or len(portfolio_values_series.dropna()) < 2:
         return pd.Series(dtype=float, name="Rendimento Annuale (%)")
 
-    # Raccogli i valori di fine anno (o l'ultimo valore disponibile per l'ultimo anno parziale)
-    # Usiamo resample('YE') per ottenere l'ultimo giorno di ogni anno.
-    # Per versioni pandas più recenti, 'YE' è preferito a 'A' o 'AS'.
-    # Se pandas < 2.2.0, 'A' potrebbe funzionare per fine anno.
-    try:
-        annual_values = portfolio_values_series.resample('YE').last() # YE per YearEnd
-    except AttributeError: # Potrebbe essere una versione pandas più vecchia
-        try:
-            annual_values = portfolio_values_series.resample('A').last() # 'A' per fine anno (deprecato ma fallback)
-        except Exception as e_resample:
-            print(f"Errore nel resampling annuale: {e_resample}")
-            return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+    # Assicura che la serie sia ordinata e senza duplicati nell'indice che potrebbero causare problemi
+    portfolio_values_series = portfolio_values_series.sort_index()
+    portfolio_values_series = portfolio_values_series[~portfolio_values_series.index.duplicated(keep='last')]
 
 
-    if len(annual_values) < 2: # Serve almeno un inizio e una fine di un periodo annuale
-        # Potremmo avere un solo anno parziale, calcoliamo il rendimento per quel periodo se possibile
-        if len(portfolio_values_series) > 1:
-             first_val = portfolio_values_series.iloc[0]
-             last_val = portfolio_values_series.iloc[-1]
-             num_days = (portfolio_values_series.index[-1] - portfolio_values_series.index[0]).days
-             if num_days > 0 and first_val > 0 :
-                 # Annualizza il rendimento del periodo parziale
-                 period_return = (last_val / first_val) -1
-                 annualized_return = ((1 + period_return) ** (365.25 / num_days)) - 1
-                 # Crea una serie con l'anno come indice
-                 return pd.Series({portfolio_values_series.index[-1].year: annualized_return * 100}, name="Rendimento Annuale (%)")
+    # Trova tutti gli anni unici presenti nei dati
+    years = sorted(list(set(portfolio_values_series.index.year)))
+    annual_returns_list = []
+
+    if not years:
         return pd.Series(dtype=float, name="Rendimento Annuale (%)")
 
-    annual_returns = annual_values.pct_change().dropna()
-    return annual_returns * 100 # In percentuale
+    for year in years:
+        # Valore all'inizio dell'anno (o il primo valore disponibile nell'anno)
+        start_of_year_values = portfolio_values_series[portfolio_values_series.index.year == year]
+        if start_of_year_values.empty:
+            continue # Salta l'anno se non ci sono dati
+
+        # Se è il primo anno della serie, il "valore iniziale" è il primo valore della serie in quell'anno
+        # Altrimenti, è il valore di fine dell'anno precedente.
+        
+        # Valore di fine anno precedente (per calcolare il rendimento dell'anno corrente)
+        # Se è il primo anno in assoluto della serie, il valore iniziale è il primo valore della serie.
+        if year == years[0]: # Primo anno della serie
+            # Troviamo il primo valore assoluto della serie originale per iniziare
+            # Se l'anno inizia a metà, il rendimento è da quel punto a fine anno.
+            first_value_in_series_for_year = start_of_year_values.iloc[0]
+            
+            # Se l'anno di inizio non è completo, potremmo voler calcolare il rendimento
+            # dal primo giorno di investimento fino alla fine di quell'anno.
+            # Oppure, se vogliamo rendimenti per anni civili completi, potremmo saltare il primo anno parziale.
+            # Per ora, calcoliamo il rendimento dal primo valore dell'anno alla fine dell'anno.
+            # Il "valore iniziale" per il rendimento di questo primo anno è il primo valore in quest'anno.
+            initial_value_for_year_calc = first_value_in_series_for_year
+        else:
+            # Valore di fine anno precedente
+            end_of_previous_year_series = portfolio_values_series[portfolio_values_series.index.year == year - 1]
+            if not end_of_previous_year_series.empty:
+                initial_value_for_year_calc = end_of_previous_year_series.iloc[-1]
+            else:
+                # Non ci sono dati per l'anno precedente, non possiamo calcolare il rendimento per questo anno
+                # a meno che non sia il primo anno assoluto (già gestito)
+                # Oppure potremmo prendere il primo valore di quest'anno se è un nuovo inizio.
+                # Per ora, se manca l'anno precedente (e non è il primo anno), lo saltiamo.
+                # Questo approccio è per rendimenti anno su anno.
+                 annual_returns_list.append({'Year': year, 'Return': np.nan})
+                 continue
+
+
+        # Valore alla fine dell'anno corrente (o l'ultimo valore disponibile nell'anno)
+        final_value_for_year_calc = start_of_year_values.iloc[-1]
+
+        if pd.notna(initial_value_for_year_calc) and pd.notna(final_value_for_year_calc) and initial_value_for_year_calc != 0:
+            # Se è il primo anno e inizia a metà, questo è il rendimento per il periodo rimanente dell'anno.
+            # Se vogliamo annualizzarlo, dovremmo considerare la frazione d'anno.
+            # Per un istogramma, di solito si mostrano i rendimenti effettivi del periodo (anno civile o parziale).
+            # La funzione CAGR/XIRR gestisce meglio l'annualizzazione su periodi diversi.
+            # Qui calcoliamo il rendimento semplice per l'anno (o la porzione di esso).
+            
+            # Se è il primo anno in assoluto e non inizia il 1/1, il rendimento sarà "dal lancio a fine anno".
+            # Se è un anno intermedio, sarà il rendimento dell'anno civile.
+            # Se è l'ultimo anno e non finisce il 31/12, sarà "da inizio anno alla data finale".
+            
+            # Per un istogramma, i rendimenti non annualizzati per ogni periodo (anno) sono spesso usati.
+            year_return = (final_value_for_year_calc / initial_value_for_year_calc) - 1
+            annual_returns_list.append({'Year': year, 'Return': year_return * 100})
+        else:
+            annual_returns_list.append({'Year': year, 'Return': np.nan}) # Non calcolabile
+
+    if not annual_returns_list:
+        return pd.Series(dtype=float, name="Rendimento Annuale (%)")
+
+    returns_df = pd.DataFrame(annual_returns_list).set_index('Year')['Return']
+    returns_df.name = "Rendimento Annuale (%)"
+    return returns_df
 
 # simulatore_pac/utils/performance.py
 # ... (tutte le importazioni e le funzioni esistenti rimangono invariate) ...
