@@ -254,7 +254,44 @@ if run_simulation_button:
             stacked_df_plot = pd.DataFrame(index=base_chart_date_index)
             for col in stacked_df_temp.columns: stacked_df_plot=stacked_df_plot.join(stacked_df_temp[[col]],how='left'); stacked_df_plot[col]=stacked_df_plot[col].ffill().fillna(0)
             if not stacked_df_plot.empty and not stacked_df_plot.isnull().all().all(): st.area_chart(stacked_df_plot)
+# In main.py, all'interno del blocco 'if not pac_total_df.empty ... else:'
+# dopo la sezione del Grafico Drawdown
 
+        # --- ISTOGRAMMA RENDIMENTI ANNUALI ---
+        st.subheader("Istogramma Rendimenti Annuali (%)")
+        data_for_annual_hist = {}
+        # Calcola rendimenti annuali per PAC
+        if not pac_total_df.empty and 'PortfolioValue' in pac_total_df.columns and 'Date' in pac_total_df.columns:
+            # Assicurati che l'indice sia DatetimeIndex per calculate_annual_returns
+            pac_pv_for_annual_calc = pac_total_df.set_index(pd.to_datetime(pac_total_df['Date']))['PortfolioValue']
+            annual_returns_pac = calculate_annual_returns(pac_pv_for_annual_calc)
+            if not annual_returns_pac.empty:
+                # L'indice di annual_returns_pac è già l'anno
+                data_for_annual_hist["PAC"] = annual_returns_pac
+
+        # Calcola rendimenti annuali per Lump Sum
+        if not lump_sum_df.empty and 'PortfolioValue' in lump_sum_df.columns and 'Date' in lump_sum_df.columns:
+            ls_pv_for_annual_calc = lump_sum_df.set_index(pd.to_datetime(lump_sum_df['Date']))['PortfolioValue']
+            annual_returns_ls = calculate_annual_returns(ls_pv_for_annual_calc)
+            if not annual_returns_ls.empty:
+                # L'indice di annual_returns_ls è già l'anno
+                data_for_annual_hist["Lump Sum"] = annual_returns_ls
+        
+        if data_for_annual_hist:
+            # Crea un DataFrame combinato per st.bar_chart
+            # Gli indici (anni) potrebbero non essere identici se i periodi sono diversi,
+            # quindi pd.DataFrame gestirà l'allineamento e riempirà con NaN dove necessario.
+            annual_hist_df = pd.DataFrame(data_for_annual_hist)
+            annual_hist_df.dropna(how='all', inplace=True) # Rimuovi anni se entrambi PAC e LS sono NaN
+            
+            if not annual_hist_df.empty:
+                st.bar_chart(annual_hist_df)
+            else:
+                st.warning("Dati sui rendimenti annuali non sufficienti per l'istogramma dopo la pulizia.")
+        else:
+            st.warning("Non ci sono dati sufficienti per l'istogramma dei rendimenti annuali.")
+
+        # ... qui seguiranno le altre sezioni (es. Rolling Metrics, Stacked Area, ecc.)
     # --- TABELLA QUOTE/WAP (Logica invariata) ---
     if asset_details_history_df is not None and not asset_details_history_df.empty:
         st.subheader("Dettagli Finali per Asset nel PAC")
