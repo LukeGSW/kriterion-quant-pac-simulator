@@ -19,6 +19,7 @@ def run_pac_simulation(
     # e usata per definire fino a quando il loop deve andare.
     # Per ora, il loop andrà fino alla fine dei dati disponibili in historical_data_map.
     # Assicuriamoci che historical_data_map contenga dati fino alla fine desiderata.
+    simulation_actual_end_date_dt: pd.Timestamp # NUOVO PARAMETRO ESPLICITO
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
 
     # --- VALIDAZIONE INPUT (come prima) ---
@@ -63,7 +64,7 @@ def run_pac_simulation(
 
     simulation_period_dates = reference_dates_df[
         (reference_dates_df.index >= simulation_start_date_dt) &
-        (reference_dates_df.index <= simulation_end_date_dt)
+        (reference_dates_df.index <= effective_simulation_end)
     ].index
     
     if simulation_period_dates.empty:
