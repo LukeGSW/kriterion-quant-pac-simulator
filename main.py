@@ -381,9 +381,9 @@ if run_simulation_button:
 
                 
                 # --- CHIUDI LE FIGURE MATPLOTLIB PER LIBERARE MEMORIA ---
-    if equity_fig_mpl: plt.close(equity_fig_mpl)
-    if drawdown_fig_mpl: plt.close(drawdown_fig_mpl)
-    if stacked_area_fig_mpl: plt.close(stacked_area_fig_mpl)
+            if equity_fig_mpl: plt.close(equity_fig_mpl)
+            if drawdown_fig_mpl: plt.close(drawdown_fig_mpl)
+            if stacked_area_fig_mpl: plt.close(stacked_area_fig_mpl)
                 # --- FINE CHIUSURA FIGURE ---
                 
         st.download_button(
