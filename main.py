@@ -104,20 +104,31 @@ if run_simulation_button:
     data_download_start_str = (pac_contribution_start_dt - pd.Timedelta(days=365*1)).strftime('%Y-%m-%d')
     data_download_end_str = datetime.today().strftime('%Y-%m-%d') # Scarica dati fino ad oggi
 
+    # ... inside the "if run_simulation_button:" block
     historical_data_map = {}
     all_data_loaded_successfully = True
-    latest_data_date_for_all_tickers = pd.Timestamp.min # Data più recente tra tutti i ticker caricati
+    latest_overall_data_date_ts = pd.Timestamp.min 
     
     for tkr in tickers_list:
-        with st.spinner(f"Caricamento dati per {tkr}..."):
-            data = load_historical_data_yf(tkr, data_download_start_str, data_download_end_str)
+        with st.spinner(f"Dati per {tkr}..."): 
+            data = load_historical_data_yf(tkr, data_fetch_start_date_str, data_fetch_end_date_str)
+        
+        # <<< --- ADD THIS DEBUG BLOCK --- >>>
+        if not data.empty:
+            st.write(f"--- DEBUG (Data Loader Output for {tkr}): Dati da {data.index.min().date()} a {data.index.max().date()} ---")
+        else:
+            st.write(f"--- DEBUG (Data Loader Output for {tkr}): DataFrame VUOTO restituito. ---")
+        # <<< --- END OF DEBUG BLOCK --- >>>
+
+        # Il controllo sulla data finale dei dati deve considerare la fine della contribuzione PAC
         if data.empty or data.index.min() > pac_contribution_start_dt or \
-           data.index.max() < (pac_contribution_end_dt - pd.Timedelta(days=1)): # Assicura copertura almeno del periodo di contribuzione
-            st.error(f"Dati storici insufficienti per {tkr} per coprire almeno il periodo di contribuzione PAC (fino a {pac_contribution_end_dt.date()}).")
+           data.index.max() < (pac_contribution_end_dt - pd.Timedelta(days=1)): # Confronta con la fine dei contributi
+            st.error(f"Dati storici insufficienti per {tkr} per coprire almeno il periodo di contribuzione PAC (da {pac_contribution_start_dt.date()} a {pac_contribution_end_dt.date()}). Ultima data ricevuta: {data.index.max().date() if not data.empty else 'N/A'}.")
             all_data_loaded_successfully = False; break
         historical_data_map[tkr] = data
-        if data.index.max() > latest_data_date_for_all_tickers:
-             latest_overall_data_date_ts = data.index.max() # Questo dovrebbe essere il MAX delle date finali
+        if data.index.max() > latest_overall_data_date_ts:
+             latest_overall_data_date_ts = data.index.max()
+    # ... rest of the code
     
     if not all_data_loaded_successfully: st.stop()
     st.success("Dati storici caricati.")
